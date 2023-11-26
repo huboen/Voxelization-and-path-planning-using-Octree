@@ -1,4 +1,5 @@
 import numpy as np
+import open3d as o3d
 class Octreenode:
     def __init__(self,center,size,parent=None) -> None:
         self.center = center
@@ -33,7 +34,7 @@ class Octreenode:
 class Octree:
     def __init__(self,boundingbox) -> None:
         center = self.center(boundingbox)
-        self.root = Octreenode(center,size=0.1)
+        self.root = Octreenode(center,size=0.1 )
         self.__buildTree__(self.root,depth=1)
     #initial the octree
     def __buildTree__(self,node, depth):
@@ -43,18 +44,21 @@ class Octree:
         for child_node in node.children:
             self.__buildTree__(child_node, depth - 1)
     # extend one node to given depth   
-    def extend(self,node,depth):
-        # if the node is already at the depth, return
-        if node.depth() == depth:
-            print("alreadly at the depth")
+    def extend(self, node, target_depth):
+        current_depth = node.depth()
+        
+        if current_depth == target_depth:
+            print("Already at the target depth")
             return
+        elif current_depth > target_depth:
+            print("Cannot extend to a shallower depth")
+            return
+
         if not node.children:
-        # If the node doesn't have children, create them
             node.childNode()
-        else:
-        # If the node already has children, recursively extend each child with reduced depth
-            for child_node in node.children:
-                self.extend(child_node,depth)
+
+        for child_node in node.children:
+            self.extend(child_node, target_depth)
     # insert points in to the tree
     def insert(self, point):
         pass
@@ -65,7 +69,6 @@ class Octree:
         if node == None:
             node = self.root
             if not self.point_inside_box(point,node.center,node.size):
-                print("point not in the octree")
                 raise ValueError("Point not in the octree")
     # if no children for node, it is leaf
         if not node.children:
@@ -82,8 +85,36 @@ class Octree:
         pass
     def traversal(self):
         pass
+    #visualize with open3d
     def visualize(self):
-        pass
+        line_set_list = []
+        self.__create_lines__(self.root, line_set_list)
+        o3d.visualization.draw_geometries(line_set_list)
+
+    def __create_lines__(self, node, line_set_list):
+        if not node.children:
+            # Create lines representing the bounding box edges
+            edges = [
+                [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7],
+                [4, 5], [4, 6], [5, 7], [6, 7]
+            ]
+            points = [
+                [node.center[0] - node.size / 2, node.center[1] - node.size / 2, node.center[2] - node.size / 2],
+                [node.center[0] - node.size / 2, node.center[1] - node.size / 2, node.center[2] + node.size / 2],
+                [node.center[0] - node.size / 2, node.center[1] + node.size / 2, node.center[2] - node.size / 2],
+                [node.center[0] - node.size / 2, node.center[1] + node.size / 2, node.center[2] + node.size / 2],
+                [node.center[0] + node.size / 2, node.center[1] - node.size / 2, node.center[2] - node.size / 2],
+                [node.center[0] + node.size / 2, node.center[1] - node.size / 2, node.center[2] + node.size / 2],
+                [node.center[0] + node.size / 2, node.center[1] + node.size / 2, node.center[2] - node.size / 2],
+                [node.center[0] + node.size / 2, node.center[1] + node.size / 2, node.center[2] + node.size / 2]
+            ]
+            line_set = o3d.geometry.LineSet()
+            line_set.points = o3d.utility.Vector3dVector(points)
+            line_set.lines = o3d.utility.Vector2iVector(edges)
+            line_set_list.append(line_set)
+        else:
+            for child_node in node.children:
+                self.__create_lines__(child_node, line_set_list)
     def update(self,node):
         pass
     def center(self,boundingbox):
@@ -97,26 +128,36 @@ if __name__ == "__main__":
 
     # 创建八叉树
     octree = Octree(bounding_box)
+    test_point = [0.45, 0.45, 0.45]
+    test_node = octree.find_leaf_node(test_point)
+    root_node = octree.root
+    print(test_node.depth())
+    for i in root_node.children:
+        octree.extend(i,target_depth = np.random.randint(1,4))
+    test_node = octree.find_leaf_node(test_point)
+    for i in root_node.children:
+        print(i.depth())
+    octree.visualize()
 
-    # 插入一些点
-    points_to_insert = [
-        [0.2, 0.2, 0.2],
-        [0.8, 0.8, 0.8],
-        [0.5, 0.5, 0.5],
-    ]
+    # # 插入一些点
+    # points_to_insert = [
+    #     [0.2, 0.2, 0.2],
+    #     [0.8, 0.8, 0.8],
+    #     [0.5, 0.5, 0.5],
+    # ]
 
-    for point in points_to_insert:
-        octree.insert(point)
+    # for point in points_to_insert:
+    #     octree.insert(point)
 
-    # 查找叶子节点
-    test_point = [0.7, 0.7, 0.7]
-    leaf_node = octree.find_leaf_node(test_point)
-    print("Leaf Node Center:", leaf_node.center)
-    print("Leaf Node Size:", leaf_node.size)
+    # # 查找叶子节点
+    # test_point = [0.7, 0.7, 0.7]
+    # leaf_node = octree.find_leaf_node(test_point)
+    # print("Leaf Node Center:", leaf_node.center)
+    # print("Leaf Node Size:", leaf_node.size)
 
-    # 尝试查找一个不在八叉树中的点
-    unknown_point = [1.2, 1.2, 1.2]
-    try:
-        octree.find_leaf_node(unknown_point)
-    except ValueError as e:
-        print("Error:", e)
+    # # 尝试查找一个不在八叉树中的点
+    # unknown_point = [1.2, 1.2, 1.2]
+    # try:
+    #     octree.find_leaf_node(unknown_point)
+    # except ValueError as e:
+    #     print("Error:", e)
