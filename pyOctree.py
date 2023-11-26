@@ -89,7 +89,7 @@ class Octree:
     def visualize(self):
         line_set_list = []
         self.__create_lines__(self.root, line_set_list)
-        o3d.visualization.draw_geometries(line_set_list)
+        o3d.visualization.draw_geometries(line_set_list, window_name="Octree Visualization", width=800, height=600)
 
     def __create_lines__(self, node, line_set_list):
         if not node.children:
@@ -115,6 +115,10 @@ class Octree:
         else:
             for child_node in node.children:
                 self.__create_lines__(child_node, line_set_list)
+        # create axis
+        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+        # axis.translate(node.center)
+        # line_set_list.append(axis)
     def update(self,node):
         pass
     def center(self,boundingbox):
@@ -131,12 +135,12 @@ if __name__ == "__main__":
     test_point = [0.45, 0.45, 0.45]
     test_node = octree.find_leaf_node(test_point)
     root_node = octree.root
-    print(test_node.depth())
+    # print(test_node.depth())
     for i in root_node.children:
-        octree.extend(i,target_depth = np.random.randint(1,4))
+        target_depth = np.random.randint(2,5)
+        print(target_depth)
+        octree.extend(i,target_depth = target_depth)
     test_node = octree.find_leaf_node(test_point)
-    for i in root_node.children:
-        print(i.depth())
     octree.visualize()
 
     # # 插入一些点
