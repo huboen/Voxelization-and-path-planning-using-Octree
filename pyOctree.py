@@ -34,7 +34,8 @@ class Octreenode:
 class Octree:
     def __init__(self,boundingbox) -> None:
         center = self.center(boundingbox)
-        self.root = Octreenode(center,size=0.1 )
+        initial_size = np.max(boundingbox[1]-boundingbox[0])
+        self.root = Octreenode(center,size=initial_size)
         self.__buildTree__(self.root,depth=1)
     #initial the octree
     def __buildTree__(self,node, depth):
@@ -112,6 +113,13 @@ class Octree:
             line_set.points = o3d.utility.Vector3dVector(points)
             line_set.lines = o3d.utility.Vector2iVector(edges)
             line_set_list.append(line_set)
+            # Create a cuboid representing the bounding box
+            #array([0.00794744, 0.0864054 , 0.06098304], dtype=float32)
+            #array([-0.82648194, -1.2520468 ,  0.01052197], dtype=float32)
+            cuboid = o3d.geometry.TriangleMesh.create_box(width=0.00794744, height=0.06098304, depth=0.0864054)
+            cuboid.translate([-0.82648194, -1.2520468 ,  0.01052197])
+            cuboid.paint_uniform_color([1, 0, 0])
+            line_set_list.append(cuboid)
         else:
             for child_node in node.children:
                 self.__create_lines__(child_node, line_set_list)
