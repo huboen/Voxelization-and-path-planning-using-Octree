@@ -49,10 +49,10 @@ class Octree:
         current_depth = node.depth()
         
         if current_depth == target_depth:
-            print("Already at the target depth")
+            # print("Already at the target depth")
             return
         elif current_depth > target_depth:
-            print("Cannot extend to a shallower depth")
+            # print("Cannot extend to a shallower depth")
             return
 
         if not node.children:
@@ -146,12 +146,12 @@ if __name__ == "__main__":
     test_node = octree.find_leaf_node(test_point)
     root_node = octree.root
     # print(test_node.depth())
-    for i in root_node.children:
-        target_depth = np.random.randint(2,5)
-        print(target_depth)
-        octree.extend(i,target_depth = target_depth)
-    test_node = octree.find_leaf_node(test_point)
-    octree.visualize()
+    # for i in root_node.children:
+    #     target_depth = np.random.randint(2,5)
+    #     print(target_depth)
+    #     octree.extend(i,target_depth = target_depth)
+    # test_node = octree.find_leaf_node(test_point)
+    # octree.visualize()
 
     # # 插入一些点
     # points_to_insert = [

@@ -3,6 +3,7 @@ import numpy as np
 from stl import mesh
 import cupy as cp
 import time
+import cProfile
 
 class Voxlization:
     def __init__(self,stl_path) -> None:
@@ -55,8 +56,8 @@ class Voxlization:
 class OctreeOperator(Octree):
     def __init__(self, boundingbox) -> None:
         super().__init__(boundingbox)
-
-    def findBoundingNode(self, target_depth, target_bounding_box, intersected_nodes=None, node=None):
+    #recursion
+    def findBoundingNode_recursion(self, target_depth, target_bounding_box, intersected_nodes=None, node=None):
         if intersected_nodes is None:
             intersected_nodes = []
 
@@ -72,13 +73,35 @@ class OctreeOperator(Octree):
 
                 # Recursively search through the node's children
                 for child_node in node.children:
-                    self.findBoundingNode(target_depth, target_bounding_box, intersected_nodes, child_node)
+                    self.findBoundingNode_recursion(target_depth, target_bounding_box, intersected_nodes, child_node)
         else:
             # If the node has reached the target depth, add it to intersected_nodes
             intersected_nodes.append(node)
 
         return intersected_nodes
-    
+    #iteration
+    def findBoundingNode_iteration(self, target_depth, target_bounding_box):
+        intersected_nodes = []
+        stack = [(self.root, 0)]  # 初始栈，包含根节点和深度 0
+
+        while stack:
+            node, depth = stack.pop()
+
+            # Check if the current depth is less than the target depth
+            if depth < target_depth:
+                # Check if the bounding boxes intersect
+                if self.boundingBoxIntersect(node, target_bounding_box):
+                    # Extend the node to the next depth
+                    self.extend(node, depth + 1)
+
+                    # Add the children to the stack for further exploration
+                    for child_node in node.children:
+                        stack.append((child_node, depth + 1))
+            else:
+                # If the node has reached the target depth, add it to intersected_nodes
+                intersected_nodes.append(node)
+
+        return intersected_nodes
     def boundingBoxIntersect(self, node, targetBoundingBox):
     # Check if two bounding boxes intersect
         miniNode, maxNode = np.array(node.center) - node.size / 2, np.array(node.center) + node.size / 2
@@ -110,13 +133,21 @@ if __name__ == "__main__":
     duration2 = end-start
     maxBoundingBox = voxl.maxBoundingBox()
     initial_size = np.max(maxBoundingBox[1]-maxBoundingBox[0])
+    start=time.time() 
     octreeTest = OctreeOperator(maxBoundingBox)
+    end = time.time()
+    initial_duration = end-start
     targetboundingbox =bounding_boxes[0].T
     position = octreeTest.root.center
     start=time.time() 
-    intersected_nodes = octreeTest.findBoundingNode(target_depth=10,target_bounding_box=targetboundingbox)
+    intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10,target_bounding_box=targetboundingbox)
     end = time.time()
     duration3 = end-start
+    octreeTest2 = OctreeOperator(maxBoundingBox)
+    start=time.time() 
+    intersected_nodes = octreeTest2.findBoundingNode_iteration(target_depth=10,target_bounding_box=targetboundingbox)
+    end = time.time()
+    duration4 = end-start
     # for node in intersected_nodes:
     #     print(node.depth())
     octreeTest.visualize()
@@ -124,6 +155,8 @@ if __name__ == "__main__":
     # print(bounding_boxes2[0])
     print(len(bounding_boxes))
     print(len(bounding_boxes2))
+    print("initial_duration")
+    print(initial_duration)
     print("gpu time ")
     print(duration1)
     print("cpu time ")
@@ -134,5 +167,7 @@ if __name__ == "__main__":
     print(initial_size)
     print("number of intersected nodes")
     print(len(intersected_nodes))
-    print("findingtime")
+    print("findingtime recursive")
     print(duration3)
+    print("findingtime iterative")
+    print(duration4)
