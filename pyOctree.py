@@ -116,8 +116,10 @@ class Octree:
             # Create a cuboid representing the bounding box
             #array([0.00794744, 0.0864054 , 0.06098304], dtype=float32)
             #array([-0.82648194, -1.2520468 ,  0.01052197], dtype=float32)
-            cuboid = o3d.geometry.TriangleMesh.create_box(width=0.00794744, height=0.06098304, depth=0.0864054)
-            cuboid.translate([-0.82648194, -1.2520468 ,  0.01052197])
+            #width=0.007947445, height=0.06098304, depth=0.0864054
+            cuboid = o3d.geometry.TriangleMesh.create_box(width=0.007947445, height=0.0864054, depth=0.06098304)
+            cuboid.translate([-0.83045566, -1.2952495 , -0.01996955])
+            # cuboid.translate([-1.5419416427612305, -1.2957134246826172, 0.01389758288860321])
             cuboid.paint_uniform_color([1, 0, 0])
             line_set_list.append(cuboid)
         else:

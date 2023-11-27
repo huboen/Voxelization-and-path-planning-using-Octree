@@ -112,21 +112,27 @@ if __name__ == "__main__":
     initial_size = np.max(maxBoundingBox[1]-maxBoundingBox[0])
     octreeTest = OctreeOperator(maxBoundingBox)
     targetboundingbox =bounding_boxes[0].T
-    
-    intersected_nodes = octreeTest.findBoundingNode(target_depth=8,target_bounding_box=targetboundingbox)
-    for node in intersected_nodes:
-        print(node.depth())
+    position = octreeTest.root.center
+    start=time.time() 
+    intersected_nodes = octreeTest.findBoundingNode(target_depth=10,target_bounding_box=targetboundingbox)
+    end = time.time()
+    duration3 = end-start
+    # for node in intersected_nodes:
+    #     print(node.depth())
     octreeTest.visualize()
     # print(bounding_boxes[0])
     # print(bounding_boxes2[0])
-    # print(len(bounding_boxes))
-    # print(len(bounding_boxes2))
-    # print("gpu time ")
-    # print(duration1)
-    # print("cpu time ")
-    # print(duration2)
-    # print("maxBoundingBox")
-    # print(maxBoundingBox)
-    # print("size")
-    # print(initial_size)
-   
+    print(len(bounding_boxes))
+    print(len(bounding_boxes2))
+    print("gpu time ")
+    print(duration1)
+    print("cpu time ")
+    print(duration2)
+    print("maxBoundingBox")
+    print(maxBoundingBox)
+    print("size")
+    print(initial_size)
+    print("number of intersected nodes")
+    print(len(intersected_nodes))
+    print("findingtime")
+    print(duration3)
