@@ -28,7 +28,10 @@ class Octreenode:
         if self.parent is None:
             return 0  # if root, then 0
         else:
-            return 1 + self.parent.depth()  
+            return 1 + self.parent.depth()
+
+    def get_node_info(self):
+        return (self.center, self.size, self.depth())  
 
 
 class Octree:
@@ -36,6 +39,7 @@ class Octree:
         center = self.center(boundingbox)
         initial_size = np.max(boundingbox[1]-boundingbox[0])
         self.root = Octreenode(center,size=initial_size)
+        self.leafnodes = []
         self.__buildTree__(self.root,depth=1)
     #initial the octree
     def __buildTree__(self,node, depth):
@@ -84,8 +88,20 @@ class Octree:
 
     def delPoint(self,point):
         pass
-    def traversal(self):
-        pass
+    def __update_leaf_nodes__(self,node=None):
+        if node == None:
+            node = self.root
+        if not node.children:
+            self.leafnodes.append(node)
+            return
+        for child in node.children:
+            self.__update_leaf_nodes__(child)
+    #show all leaf nodes
+    def all_leaf_nodes(self):
+        self.__update_leaf_nodes__()
+        return self.leafnodes
+        
+        
     #visualize with open3d
     def visualize(self):
         line_set_list = []
@@ -146,12 +162,12 @@ if __name__ == "__main__":
     test_node = octree.find_leaf_node(test_point)
     root_node = octree.root
     # print(test_node.depth())
-    # for i in root_node.children:
-    #     target_depth = np.random.randint(2,5)
-    #     print(target_depth)
-    #     octree.extend(i,target_depth = target_depth)
-    # test_node = octree.find_leaf_node(test_point)
-    # octree.visualize()
+    for i in root_node.children:
+        target_depth = np.random.randint(2,5)
+        print(target_depth)
+        octree.extend(i,target_depth = target_depth)
+    test_node = octree.find_leaf_node(test_point)
+    octree.visualize()
 
     # # 插入一些点
     # points_to_insert = [
