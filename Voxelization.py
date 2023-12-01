@@ -152,7 +152,7 @@ class OctreeOperator(Octree):
     #find bounding Nodes for one layer with cuda                
     def findBoundingNodesOnce_cuda(self,target_bounding_boxes):
         centers, sizes = OctreeOperator.maxtrixOperator(self.all_leaf_nodes())
-        # print(centers.shape)
+        print(centers.shape)
         # print(sizes.shape)
         # 将数据传递到 GPU
         # 将数据传递到 GPU
@@ -181,14 +181,14 @@ class OctreeOperator(Octree):
             results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes)
             for i in range(results.size):
                 if results[i]:
-                    OctreeOperator.extend(self.leafnodes[i],self.leafnodes[i].depth)
-                    OctreeOperator.extend(self.leafnodes[i],self.leafnodes[i].depth)
+                    OctreeOperator.extend(self.leafnodes[i],self.leafnodes[i].depth+1)
             self.all_leaf_nodes()
             max_depth = self.max_depth()
             print(max_depth)
-        for i in len(results):
-            if results(i):
-                intersected_tree_nodes.append(self.leafnodes(i))
+        for i in range(results.size):
+            if results[i]:
+                intersected_tree_nodes.append(self.leafnodes[i])
+        print(results.size)
         return intersected_tree_nodes
 
     
@@ -229,12 +229,14 @@ if __name__ == "__main__":
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=10,target_bounding_boxes=targetboundingboxes)
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes)
     end = time.time()
     duration = end - start
+    octreeTest.all_leaf_nodes()
     print("GPU Duration")
     print(duration)
-    print(len(intersected_nodes))
+    print(len(octreeTest.leafnodes))
+
     # octreeTest.all_leaf_nodes()   
 
     # 结束性能分析
