@@ -7,6 +7,7 @@ class Octreenode:
         self.label = 0 
         self.children = []
         self.parent = parent
+        self.depth = self.get_depth()
 
     def childNode(self):
         child_size = self.size / 2
@@ -23,15 +24,15 @@ class Octreenode:
         ]
         self.children = [Octreenode(i, size=child_size,parent=self) for i in child_centers]
 
-    def depth(self):
+    def get_depth(self):
         # calculate the depth recursively
         if self.parent is None:
             return 0  # if root, then 0
         else:
-            return 1 + self.parent.depth()
+            return 1 + self.parent.depth
 
     def get_node_info(self):
-        return (self.center, self.size, self.depth())  
+        return (self.center, self.size, self.get_depth())  
 
 
 class Octree:
@@ -48,9 +49,10 @@ class Octree:
         node.childNode()
         for child_node in node.children:
             self.__buildTree__(child_node, depth - 1)
-    # extend one node to given depth   
-    def extend(self, node, target_depth):
-        current_depth = node.depth()
+    # extend one node to given depth
+    @staticmethod   
+    def extend(node, target_depth):
+        current_depth = node.depth
         
         if current_depth == target_depth:
             # print("Already at the target depth")
@@ -63,7 +65,7 @@ class Octree:
             node.childNode()
 
         for child_node in node.children:
-            self.extend(child_node, target_depth)
+            Octree.extend(child_node, target_depth)
     # insert points in to the tree
     def insert(self, point):
         pass
@@ -91,7 +93,7 @@ class Octree:
     def __update_leaf_nodes__(self,node=None):
         if node == None:
             node = self.root
-        if not node.children:
+        if not node.children :
             self.leafnodes.append(node)
             return
         for child in node.children:
@@ -147,6 +149,13 @@ class Octree:
         # line_set_list.append(axis)
     def update(self,node):
         pass
+    #calculate the maximum depth of the octree
+    def max_depth(self):
+        self.all_leaf_nodes()
+        depth = np.array(list(node.depth for node in self.leafnodes))
+        maxDepth = np.max(depth)
+        return maxDepth
+
     def center(self,boundingbox):
         center = [0.5*(boundingbox[0][0]+boundingbox[1][0]),0.5*(boundingbox[0][1]+boundingbox[1][1]),0.5*(boundingbox[0][2]+boundingbox[1][2])]
         return center    
@@ -164,9 +173,10 @@ if __name__ == "__main__":
     # print(test_node.depth())
     for i in root_node.children:
         target_depth = np.random.randint(2,5)
-        print(target_depth)
+        # print(target_depth)
         octree.extend(i,target_depth = target_depth)
     test_node = octree.find_leaf_node(test_point)
+    print(octree.max_depth())
     octree.visualize()
 
     # # 插入一些点
