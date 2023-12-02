@@ -18,9 +18,10 @@ class Voxlization:
             file_path = self.stl_path
         
         # read stl file
+        # mesh_data = o3d.io.read_triangle_mesh(file_path)
         mesh_data = mesh.Mesh.from_file(file_path)
-
         # obtain the triangles
+        # triangles = mesh_data.triangles
         triangles = mesh_data.vectors
         
         return triangles
@@ -54,6 +55,9 @@ class Voxlization:
         max_bound = np.max(vertices,axis=0)
         max_bounding_box = [min_bound,max_bound]
         return max_bounding_box
+
+        
+ 
 
     
 
@@ -121,11 +125,13 @@ class OctreeOperator(Octree):
                     maxBbox[2] < miniNode[2] or miniBbox[2] > maxNode[2])
     @staticmethod
     @cuda.jit
-    def boundingBoxIntersect_cuda(centers, sizes, targetBoundingBoxes, results):
+    def boundingBoxIntersect_cuda(centers, sizes, targetBoundingBoxes, results,output_test = None):
         thread= cuda.grid(1)
         if thread < targetBoundingBoxes.shape[0]:
             # miniNode, maxNode = centers[i] - sizes[i] / 2, centers[i] + sizes[i] / 2 
                 # 先获取 targetBoundingBoxes[i] 切片
+                if output_test is not None:
+                    output_test[thread] = thread
                 bbox_slice = targetBoundingBoxes[thread]
                 
                 # 然后再获取 [0, :] 切片
@@ -142,13 +148,17 @@ class OctreeOperator(Octree):
                     maxNode[1] = centers[node_number, 1] + sizes[node_number, 1]/2
                     maxNode[2] = centers[node_number, 2] + sizes[node_number, 2]/2
 
-                    results[thread, node_number] = not (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
+                    # if not (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
+                    #     maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
+                    #     maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] ):
+                        # cuda.atomic.add(results, node_number, 1)
+                    results[thread,node_number]= not    (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
                                                         maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
-                                                        maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] or
-                                                        maxBbox[0] < miniNode[0] or miniBbox[0] > maxNode[0] or
-                                                        maxBbox[1] < miniNode[1] or miniBbox[1] > maxNode[1] or
-                                                        maxBbox[2] < miniNode[2] or miniBbox[2] > maxNode[2])
-                    
+                                                        maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] )
+ 
+
+
+
     #find bounding Nodes for one layer with cuda                
     def findBoundingNodesOnce_cuda(self,target_bounding_boxes):
         centers, sizes = OctreeOperator.maxtrixOperator(self.all_leaf_nodes())
@@ -159,24 +169,28 @@ class OctreeOperator(Octree):
         centers_gpu = cuda.to_device(np.array(centers))
         sizes_gpu = cuda.to_device(np.array(sizes))
         target_bounding_box_gpu = cuda.to_device(np.ascontiguousarray(target_bounding_boxes))
-        result_gpu = cuda.device_array((target_bounding_boxes.shape[0],centers_gpu.shape[0]),dtype=bool)
-
+        result_gpu = cuda.device_array((target_bounding_box_gpu.shape[0],centers_gpu.shape[0]),dtype=np.int32)
+        output_test_gpu = cuda.device_array(target_bounding_box_gpu.shape[0],dtype=np.int64)
         # 设置线程和块大小
         threads_per_block = 256
-        blocks_per_grid = (centers_gpu.shape[0] + threads_per_block - 1) // threads_per_block
+        blocks_per_grid = (target_bounding_box_gpu.shape[0] + threads_per_block - 1) // threads_per_block
 
         # 调用 CUDA 核函数
-        OctreeOperator.boundingBoxIntersect_cuda[blocks_per_grid, threads_per_block](centers_gpu, sizes_gpu, target_bounding_box_gpu, result_gpu)
+        OctreeOperator.boundingBoxIntersect_cuda[blocks_per_grid, threads_per_block](centers_gpu, sizes_gpu, target_bounding_box_gpu, result_gpu, output_test_gpu)
 
         # 从 GPU 获取结果
-        result_2d = result_gpu.copy_to_host()
+        cuda.synchronize()
+        result_2d= result_gpu.copy_to_host()
         result = OctreeOperator.reduce_size(result_2d)
+        # for i in output_test_gpu.copy_to_host():
+        #     print(i)
         return result
     
     # find all BoundingNodes of target depth with cuda
     def findBoundingNodesAll_cuda(self, target_depth, target_bounding_boxes):
         intersected_tree_nodes = []
-        max_depth = 1
+        max_depth = 2
+        results = np.zeros(len(self.leafnodes), dtype=np.int32)
         while max_depth < target_depth:
             results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes)
             for i in range(results.size):
@@ -184,11 +198,9 @@ class OctreeOperator(Octree):
                     OctreeOperator.extend(self.leafnodes[i],self.leafnodes[i].depth+1)
             self.all_leaf_nodes()
             max_depth = self.max_depth()
-            print(max_depth)
         for i in range(results.size):
             if results[i]:
                 intersected_tree_nodes.append(self.leafnodes[i])
-        print(results.size)
         return intersected_tree_nodes
 
     
@@ -212,14 +224,25 @@ class OctreeOperator(Octree):
         result = np.any(arr, axis=0)
         return result
 if __name__ == "__main__":
-    data_path = "B:\Master arbeit\DONUT2.stl"
+    # data_path = "B:\Master arbeit\DONUT2.stl"
+    data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
     voxl = Voxlization(data_path)
     triangles = voxl.read_stl()
-    bounding_boxes = voxl.boundingBoxes_gpu(triangles)
+    bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
     maxBoundingBox = voxl.maxBoundingBox()
     octreeTest = OctreeOperator(maxBoundingBox)
     targetboundingbox =bounding_boxes[0].T
     targetboundingboxes =np.transpose(bounding_boxes, (0, 2, 1))
+
+    # OctreeOperator.boundingBoxIntersect_cuda[blocks_per_grid, threads_per_block](centers_gpu, sizes_gpu, target_bounding_box_gpu, result_gpu)
+
+    # for boundingbox in targetboundingboxes:
+    #         center = (boundingbox[0] + boundingbox[1]) / 2
+    #         size = boundingbox[1] - boundingbox[0]
+    #         if np.any(size <= 0):
+    #             print(boundingbox)
+    #             raise ValueError("smaller than 0")
+    
 
 #     profiler = cProfile.Profile()
 
@@ -229,13 +252,15 @@ if __name__ == "__main__":
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes)
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=4,target_bounding_boxes=targetboundingboxes)
     end = time.time()
     duration = end - start
     octreeTest.all_leaf_nodes()
     print("GPU Duration")
     print(duration)
     print(len(octreeTest.leafnodes))
+    octreeTest.visualize()
+    print(len(intersected_nodes))
 
     # octreeTest.all_leaf_nodes()   
 

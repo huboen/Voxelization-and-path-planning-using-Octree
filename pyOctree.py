@@ -100,14 +100,54 @@ class Octree:
             self.__update_leaf_nodes__(child)
     #show all leaf nodes
     def all_leaf_nodes(self):
+        self.leafnodes = []
         self.__update_leaf_nodes__()
         return self.leafnodes
         
         
     #visualize with open3d
-    def visualize(self):
+    def load_stl_with_border(self, stl_path):
+        mesh = o3d.io.read_triangle_mesh(stl_path)
+
+        # 创建 STL 文件的边框
+        lines = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+        lines.paint_uniform_color([1, 0, 0])  # 边框的颜色，可以根据需要进行调整
+
+        return mesh, lines
+
+    # 新增一个方法来将 STL 几何体和边框添加到可视化中
+    def add_stl_with_border_to_visualization(self, stl_path, line_set_list):
+        stl_mesh, border_lines = self.load_stl_with_border(stl_path)
+
+        # 添加 STL 文件的边框
+        line_set_list.append(border_lines)
+
+        # 添加 STL 文件的实体几何体
+        line_set_list.append(stl_mesh)
+    
+    @staticmethod
+    def create_cuboid_from_corners(boundingboxes,line_set_list):
+        for boundingbox in boundingboxes:
+            center = (boundingbox[0] + boundingbox[1]) / 2
+            size = np.abs(boundingbox[1] - boundingbox[0])
+            if np.any(size<= 0):
+                continue
+            cuboid = o3d.geometry.TriangleMesh.create_box(size[0], size[1], size[2])
+            cuboid.translate(boundingbox[0])
+            cuboid.paint_uniform_color([1, 0, 0])
+            line_set_list.append(cuboid)
+
+    # 重写 visualize 方法以显示 STL 文件和边框
+    def visualize(self, stl_path=None,boundingboxes=None):
         line_set_list = []
         self.__create_lines__(self.root, line_set_list)
+
+        # 如果提供了 STL 文件路径，将其加载并添加到可视化中
+        if stl_path:
+            self.add_stl_with_border_to_visualization(stl_path, line_set_list)
+        if boundingboxes is not None:
+            self.create_cuboid_from_corners(boundingboxes,line_set_list)
+
         o3d.visualization.draw_geometries(line_set_list, window_name="Octree Visualization", width=800, height=600)
 
     def __create_lines__(self, node, line_set_list):
@@ -151,7 +191,6 @@ class Octree:
         pass
     #calculate the maximum depth of the octree
     def max_depth(self):
-        self.all_leaf_nodes()
         depth = np.array(list(node.depth for node in self.leafnodes))
         maxDepth = np.max(depth)
         return maxDepth
@@ -177,7 +216,8 @@ if __name__ == "__main__":
         octree.extend(i,target_depth = target_depth)
     test_node = octree.find_leaf_node(test_point)
     print(octree.max_depth())
-    octree.visualize()
+    data_path = "B:\Master arbeit\DONUT2.stl"
+    octree.visualize(data_path)
 
     # # 插入一些点
     # points_to_insert = [
