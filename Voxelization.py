@@ -203,16 +203,17 @@ class OctreeOperator(Octree):
             intersected_tree_nodes = self.root.children
         else:
             intersected_tree_nodes = intersected_nodes
-        max_depth = 2
-        results = np.zeros(len(intersected_tree_nodes), dtype=np.int8)
-        while max_depth <= target_depth:
-            print("go in")
-            results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes,intersected_nodes=intersected_tree_nodes)
-            print("go out")
+        max_depth = intersected_nodes[0].depth
+        results = np.ones(len(intersected_tree_nodes), dtype=np.int8)
+        while max_depth < target_depth:
             for i in range(results.size):
                 if results[i]:
                     OctreeOperator.extend(intersected_tree_nodes[i],intersected_tree_nodes[i].depth+1)
             intersected_tree_nodes = self.intersected_node_update(results,intersected_tree_nodes)
+            print("go in")
+            results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes,intersected_nodes=intersected_tree_nodes)
+            print("go out")
+            
             
             max_depth = intersected_tree_nodes[0].depth
             # self.all_leaf_nodes()
@@ -245,7 +246,10 @@ class OctreeOperator(Octree):
         intersected_tree_nodes_new = []
         for i in range(results.size):
             if results[i]:
-                intersected_tree_nodes_new.extend(intersected_nodes_old[i].children)
+                if len(intersected_nodes_old[i].children) :
+                    intersected_tree_nodes_new.extend(intersected_nodes_old[i].children)
+                else:
+                    intersected_tree_nodes_new.extend(intersected_nodes_old)
         return intersected_tree_nodes_new
 if __name__ == "__main__":
     # data_path = "B:\Master arbeit\DONUT2.stl"
@@ -276,7 +280,7 @@ if __name__ == "__main__":
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
     
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
     
     
     octreeTest.all_leaf_nodes()
