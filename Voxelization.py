@@ -160,47 +160,65 @@ class OctreeOperator(Octree):
 
 
     #find bounding Nodes for one layer with cuda                
-    def findBoundingNodesOnce_cuda(self,target_bounding_boxes):
-        centers, sizes = OctreeOperator.maxtrixOperator(self.all_leaf_nodes())
-        print(centers.shape)
+    def findBoundingNodesOnce_cuda(self,target_bounding_boxes,intersected_nodes = None):
+        if intersected_nodes is None:
+            centers, sizes = OctreeOperator.maxtrixOperator(self.all_leaf_nodes(self.root.children[0]))
+        else:
+            centers, sizes = OctreeOperator.maxtrixOperator(intersected_nodes)
+            
+        # print(centers.shape)
         # print(sizes.shape)
         # 将数据传递到 GPU
-        # 将数据传递到 GPU
+        # 将数据传递到 GP
+        
         centers_gpu = cuda.to_device(np.array(centers))
         sizes_gpu = cuda.to_device(np.array(sizes))
         target_bounding_box_gpu = cuda.to_device(np.ascontiguousarray(target_bounding_boxes))
-        result_gpu = cuda.device_array((target_bounding_box_gpu.shape[0],centers_gpu.shape[0]),dtype=np.int32)
-        output_test_gpu = cuda.device_array(target_bounding_box_gpu.shape[0],dtype=np.int64)
+        result_gpu = cuda.device_array((target_bounding_box_gpu.shape[0],centers_gpu.shape[0]),dtype=np.int8)
+        output_test_gpu = cuda.device_array(target_bounding_box_gpu.shape[0],dtype=np.int8)
         # 设置线程和块大小
         threads_per_block = 256
         blocks_per_grid = (target_bounding_box_gpu.shape[0] + threads_per_block - 1) // threads_per_block
-
+        
         # 调用 CUDA 核函数
         OctreeOperator.boundingBoxIntersect_cuda[blocks_per_grid, threads_per_block](centers_gpu, sizes_gpu, target_bounding_box_gpu, result_gpu, output_test_gpu)
-
+        
         # 从 GPU 获取结果
-        cuda.synchronize()
+        # cuda.synchronize()
+        print("at 1")
+        begin = time.time()
         result_2d= result_gpu.copy_to_host()
+        end = time.time()
+        duration = end - begin
+        print("at 2")
+        print("amount:",centers_gpu.shape[0],"get result time",duration, "storage:",result_2d.nbytes/(1024*1024*1024))
         result = OctreeOperator.reduce_size(result_2d)
         # for i in output_test_gpu.copy_to_host():
         #     print(i)
         return result
     
     # find all BoundingNodes of target depth with cuda
-    def findBoundingNodesAll_cuda(self, target_depth, target_bounding_boxes):
-        intersected_tree_nodes = []
+    def findBoundingNodesAll_cuda(self, target_depth, target_bounding_boxes,intersected_nodes=None):
+        if intersected_nodes is None:
+            intersected_tree_nodes = self.root.children
+        else:
+            intersected_tree_nodes = intersected_nodes
         max_depth = 2
-        results = np.zeros(len(self.leafnodes), dtype=np.int32)
-        while max_depth < target_depth:
-            results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes)
+        results = np.zeros(len(intersected_tree_nodes), dtype=np.int8)
+        while max_depth <= target_depth:
+            print("go in")
+            results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes,intersected_nodes=intersected_tree_nodes)
+            print("go out")
             for i in range(results.size):
                 if results[i]:
-                    OctreeOperator.extend(self.leafnodes[i],self.leafnodes[i].depth+1)
-            self.all_leaf_nodes()
-            max_depth = self.max_depth()
-        for i in range(results.size):
-            if results[i]:
-                intersected_tree_nodes.append(self.leafnodes[i])
+                    OctreeOperator.extend(intersected_tree_nodes[i],intersected_tree_nodes[i].depth+1)
+            intersected_tree_nodes = self.intersected_node_update(results,intersected_tree_nodes)
+            
+            max_depth = intersected_tree_nodes[0].depth
+            # self.all_leaf_nodes()
+            
+            # print(max_depth)
+        print("end")
         return intersected_tree_nodes
 
     
@@ -223,6 +241,12 @@ class OctreeOperator(Octree):
     # 沿着第一维度（轴0）应用any函数
         result = np.any(arr, axis=0)
         return result
+    def intersected_node_update(self,results,intersected_nodes_old):
+        intersected_tree_nodes_new = []
+        for i in range(results.size):
+            if results[i]:
+                intersected_tree_nodes_new.extend(intersected_nodes_old[i].children)
+        return intersected_tree_nodes_new
 if __name__ == "__main__":
     # data_path = "B:\Master arbeit\DONUT2.stl"
     data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
@@ -251,16 +275,18 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=4,target_bounding_boxes=targetboundingboxes)
-    end = time.time()
-    duration = end - start
+    
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
+    
+    
     octreeTest.all_leaf_nodes()
-    print("GPU Duration")
-    print(duration)
-    print(len(octreeTest.leafnodes))
-    octreeTest.visualize()
-    print(len(intersected_nodes))
+    # print("GPU Duration")
+    resolution = octreeTest.root.size*(0.5**10)
+    print("resolution",resolution)
+    print("how many leafnodes",len(octreeTest.leafnodes))
+    print("how many intersected nodes",len(intersected_nodes))
+    # octreeTest.visualize()
+    
 
     # octreeTest.all_leaf_nodes()   
 

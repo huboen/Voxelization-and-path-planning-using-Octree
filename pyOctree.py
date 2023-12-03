@@ -99,9 +99,9 @@ class Octree:
         for child in node.children:
             self.__update_leaf_nodes__(child)
     #show all leaf nodes
-    def all_leaf_nodes(self):
+    def all_leaf_nodes(self,target_node = None):
         self.leafnodes = []
-        self.__update_leaf_nodes__()
+        self.__update_leaf_nodes__(node= target_node)
         return self.leafnodes
         
         
@@ -191,6 +191,7 @@ class Octree:
         pass
     #calculate the maximum depth of the octree
     def max_depth(self):
+        self.all_leaf_nodes
         depth = np.array(list(node.depth for node in self.leafnodes))
         maxDepth = np.max(depth)
         return maxDepth
