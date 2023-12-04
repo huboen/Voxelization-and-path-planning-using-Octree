@@ -9,7 +9,7 @@ from functools import partial
 from numba import cuda
 import numba
 
-class Voxlization:
+class BoundingboxTool:
     def __init__(self,stl_path) -> None:
         self.stl_path = stl_path
 
@@ -30,7 +30,7 @@ class Voxlization:
     def boundingBoxes(triangles):
         boundingBoxGroup = []
         for triangle in triangles:
-            boundingBoxGroup.append(Voxlization.boundingBox(triangle))
+            boundingBoxGroup.append(BoundingboxTool.boundingBox(triangle))
         return boundingBoxGroup
     
     @staticmethod
@@ -185,12 +185,12 @@ class OctreeOperator(Octree):
         
         # 从 GPU 获取结果
         # cuda.synchronize()
-        print("at 1")
+        # print("at 1")
         begin = time.time()
         result_2d= result_gpu.copy_to_host()
         end = time.time()
         duration = end - begin
-        print("at 2")
+        # print("at 2")
         print("amount:",centers_gpu.shape[0],"get result time",duration, "storage:",result_2d.nbytes/(1024*1024*1024))
         result = OctreeOperator.reduce_size(result_2d)
         # for i in output_test_gpu.copy_to_host():
@@ -203,16 +203,16 @@ class OctreeOperator(Octree):
             intersected_tree_nodes = self.root.children
         else:
             intersected_tree_nodes = intersected_nodes
-        max_depth = intersected_nodes[0].depth
+        max_depth = intersected_tree_nodes[0].depth
         results = np.ones(len(intersected_tree_nodes), dtype=np.int8)
         while max_depth < target_depth:
             for i in range(results.size):
                 if results[i]:
                     OctreeOperator.extend(intersected_tree_nodes[i],intersected_tree_nodes[i].depth+1)
             intersected_tree_nodes = self.intersected_node_update(results,intersected_tree_nodes)
-            print("go in")
+            # print("go in")
             results = self.findBoundingNodesOnce_cuda(target_bounding_boxes=target_bounding_boxes,intersected_nodes=intersected_tree_nodes)
-            print("go out")
+            # print("go out")
             
             
             max_depth = intersected_tree_nodes[0].depth
@@ -220,7 +220,7 @@ class OctreeOperator(Octree):
         # intersected_tree_nodes = np.where(results==True,intersected_tree_nodes,0)
         intersected_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==False) ) 
             # print(max_depth)
-        print("end")
+        # print("end")
         return intersected_tree_nodes
 
     
@@ -252,6 +252,14 @@ class OctreeOperator(Octree):
                 else:
                     intersected_tree_nodes_new.extend(intersected_nodes_old)
         return intersected_tree_nodes_new
+    @staticmethod
+    def transferNode2box(nodes):
+        boundingBoxes = []
+        for node in nodes:
+            min_bound = np.array(node.center)- node.size
+            max_bound = np.array(node.center)+ node.size
+            boundingBoxes.append([min_bound,max_bound])
+        return boundingBoxes
 if __name__ == "__main__":
     def transferNode2box(nodes):
         boundingBoxes = []
@@ -260,9 +268,9 @@ if __name__ == "__main__":
             max_bound = np.array(node.center)+ node.size
             boundingBoxes.append([min_bound,max_bound])
         return boundingBoxes
-    # data_path = "B:\Master arbeit\DONUT2.stl"
-    data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
-    voxl = Voxlization(data_path)
+    data_path = "B:\Master arbeit\DONUT2.stl"
+    # data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
+    voxl = BoundingboxTool(data_path)
     triangles = voxl.read_stl()
     bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
     maxBoundingBox = voxl.maxBoundingBox()
@@ -287,19 +295,30 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
-    intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=10,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
-    print(octreeTest.root.size)
-    print(np.max((-maxBoundingBox[0]+maxBoundingBox[1])))
+    target_depth= 10
+    start = time.time()
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=7,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
+    depth = intersected_nodes[0].depth
+    while depth<target_depth:
+        intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
+        a = []
+        for group in intersected_nodes:
+            a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
+        # intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
+        intersected_nodes = a
+        depth = intersected_nodes[0].depth
+    end = time.time()
+    duration = end - start
+    # intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
     octreeTest.all_leaf_nodes()
     # print("GPU Duration")
-    resolution = octreeTest.root.size*(0.5**10)
+    resolution = octreeTest.root.size*(0.5**(target_depth))
+    print("Computation time", duration)
     print("resolution",resolution)
     print("how many leafnodes",len(octreeTest.leafnodes))
-    # print("how many intersected nodes",len(intersected_nodes)-1+len(intersected_nodes_2))
-    node_boxes = transferNode2box([intersected_nodes_2[-1]])
-    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes)
+    print("how many intersected nodes",len(intersected_nodes))
+    node_boxes = transferNode2box(intersected_nodes)
+    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
     
 
     # octreeTest.all_leaf_nodes()   

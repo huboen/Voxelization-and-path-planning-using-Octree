@@ -138,9 +138,10 @@ class Octree:
             line_set_list.append(cuboid)
 
     # 重写 visualize 方法以显示 STL 文件和边框
-    def visualize(self, stl_path=None,boundingboxes=None):
+    def visualize(self, stl_path=None,boundingboxes=None,octree=True):
         line_set_list = []
-        self.__create_lines__(self.root, line_set_list)
+        if octree:
+            self.__create_lines__(self.root, line_set_list)
 
         # 如果提供了 STL 文件路径，将其加载并添加到可视化中
         if stl_path:
