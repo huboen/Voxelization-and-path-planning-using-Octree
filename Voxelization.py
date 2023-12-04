@@ -217,7 +217,8 @@ class OctreeOperator(Octree):
             
             max_depth = intersected_tree_nodes[0].depth
             # self.all_leaf_nodes()
-            
+        # intersected_tree_nodes = np.where(results==True,intersected_tree_nodes,0)
+        intersected_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==False) ) 
             # print(max_depth)
         print("end")
         return intersected_tree_nodes
@@ -252,6 +253,13 @@ class OctreeOperator(Octree):
                     intersected_tree_nodes_new.extend(intersected_nodes_old)
         return intersected_tree_nodes_new
 if __name__ == "__main__":
+    def transferNode2box(nodes):
+        boundingBoxes = []
+        for node in nodes:
+            min_bound = np.array(node.center)- node.size
+            max_bound = np.array(node.center)+ node.size
+            boundingBoxes.append([min_bound,max_bound])
+        return boundingBoxes
     # data_path = "B:\Master arbeit\DONUT2.stl"
     data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
     voxl = Voxlization(data_path)
@@ -280,16 +288,18 @@ if __name__ == "__main__":
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
     
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
-    
-    
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0]])
+    intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=10,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
+    print(octreeTest.root.size)
+    print(np.max((-maxBoundingBox[0]+maxBoundingBox[1])))
     octreeTest.all_leaf_nodes()
     # print("GPU Duration")
     resolution = octreeTest.root.size*(0.5**10)
     print("resolution",resolution)
     print("how many leafnodes",len(octreeTest.leafnodes))
-    print("how many intersected nodes",len(intersected_nodes))
-    # octreeTest.visualize()
+    # print("how many intersected nodes",len(intersected_nodes)-1+len(intersected_nodes_2))
+    node_boxes = transferNode2box([intersected_nodes_2[-1]])
+    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes)
     
 
     # octreeTest.all_leaf_nodes()   

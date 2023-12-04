@@ -129,12 +129,12 @@ class Octree:
     def create_cuboid_from_corners(boundingboxes,line_set_list):
         for boundingbox in boundingboxes:
             center = (boundingbox[0] + boundingbox[1]) / 2
-            size = np.abs(boundingbox[1] - boundingbox[0])
+            size = (boundingbox[1] - boundingbox[0])/2
             if np.any(size<= 0):
                 continue
             cuboid = o3d.geometry.TriangleMesh.create_box(size[0], size[1], size[2])
-            cuboid.translate(boundingbox[0])
-            cuboid.paint_uniform_color([1, 0, 0])
+            cuboid.translate(center,relative=False)
+            cuboid.paint_uniform_color([0, 0, 1])
             line_set_list.append(cuboid)
 
     # 重写 visualize 方法以显示 STL 文件和边框
@@ -175,11 +175,11 @@ class Octree:
             #array([0.00794744, 0.0864054 , 0.06098304], dtype=float32)
             #array([-0.82648194, -1.2520468 ,  0.01052197], dtype=float32)
             #width=0.007947445, height=0.06098304, depth=0.0864054
-            cuboid = o3d.geometry.TriangleMesh.create_box(width=0.007947445, height=0.0864054, depth=0.06098304)
-            cuboid.translate([-0.83045566, -1.2952495 , -0.01996955])
-            # cuboid.translate([-1.5419416427612305, -1.2957134246826172, 0.01389758288860321])
-            cuboid.paint_uniform_color([1, 0, 0])
-            line_set_list.append(cuboid)
+            # cuboid = o3d.geometry.TriangleMesh.create_box(width=0.007947445, height=0.0864054, depth=0.06098304)
+            # cuboid.translate([-0.83045566, -1.2952495 , -0.01996955])
+            # # cuboid.translate([-1.5419416427612305, -1.2957134246826172, 0.01389758288860321])
+            # cuboid.paint_uniform_color([1, 0, 0])
+            # line_set_list.append(cuboid)
         else:
             for child_node in node.children:
                 self.__create_lines__(child_node, line_set_list)
@@ -197,7 +197,7 @@ class Octree:
         return maxDepth
 
     def center(self,boundingbox):
-        center = [0.5*(boundingbox[0][0]+boundingbox[1][0]),0.5*(boundingbox[0][1]+boundingbox[1][1]),0.5*(boundingbox[0][2]+boundingbox[1][2])]
+        center = 0.5*(boundingbox[0]+boundingbox[1])
         return center    
 
         
@@ -216,7 +216,7 @@ if __name__ == "__main__":
         # print(target_depth)
         octree.extend(i,target_depth = target_depth)
     test_node = octree.find_leaf_node(test_point)
-    print(octree.max_depth())
+    # print(octree.max_depth())
     data_path = "B:\Master arbeit\DONUT2.stl"
     octree.visualize(data_path)
 
