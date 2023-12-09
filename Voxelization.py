@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from numba import cuda
 import numba
+import math
 
 class BoundingboxTool:
     def __init__(self,stl_path) -> None:
@@ -56,6 +57,12 @@ class BoundingboxTool:
         max_bounding_box = [min_bound,max_bound]
         return max_bounding_box
 
+    def minBoundingBox(self):
+        triangles = self.read_stl()
+        bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
+        size = np.min(np.max(bounding_boxes[:,:,1]-bounding_boxes[:,:,0],axis=1))
+        return size
+        
         
  
 
@@ -135,12 +142,12 @@ class OctreeOperator(Octree):
                 bbox_slice = targetBoundingBoxes[thread]
                 
                 # 然后再获取 [0, :] 切片
-                miniBbox = cuda.local.array(3, dtype=numba.float64)
-                maxBbox = cuda.local.array(3, dtype=numba.float64)
+                miniBbox = cuda.local.array(3, dtype=numba.float32)
+                maxBbox = cuda.local.array(3, dtype=numba.float32)
                 miniBbox, maxBbox = bbox_slice[0], bbox_slice[1]
                 for node_number in range(len(centers)):
-                    miniNode = cuda.local.array(3, dtype=numba.float64)
-                    maxNode = cuda.local.array(3, dtype=numba.float64)
+                    miniNode = cuda.local.array(3, dtype=numba.float32)
+                    maxNode = cuda.local.array(3, dtype=numba.float32)
                     miniNode[0] = centers[node_number, 0] - sizes[node_number, 0]/2
                     miniNode[1] = centers[node_number, 1] - sizes[node_number, 1]/2
                     miniNode[2] = centers[node_number, 2] - sizes[node_number, 2]/2
@@ -260,6 +267,128 @@ class OctreeOperator(Octree):
             max_bound = np.array(node.center)+ node.size
             boundingBoxes.append([min_bound,max_bound])
         return boundingBoxes
+    
+class separatingAxis:
+    def __init__(self) -> None:
+        pass
+
+    @staticmethod
+    def overlap_on_axis(triangle_proj, box_proj):
+    # 判断投影是否重叠
+        return max(triangle_proj[0], box_proj[0]) <= min(triangle_proj[1], box_proj[1])
+    @staticmethod
+    def project_calculation(points, axis):
+        # 计算所有点在轴上的投影，并返回最小和最大值
+        values = [np.dot(point, axis) for point in points]
+        return min(values), max(values)
+    @staticmethod
+    def collision_3d_triangle_box(triangle, box):
+        # 计算三角形的法向量
+        tri_normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+        tri_normal /= np.linalg.norm(tri_normal)
+        triangle_edges = [triangle[1] - triangle[0],triangle[2] - triangle[0],triangle[2] - triangle[1]]
+        box_edges = [[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,0,1]]
+        # 计算 box 中心到平面的距离
+        box_center = (box[0] + box[1]) / 2
+        box_dimension = (box[1]-box[0])/2
+        # box_points = [box[0],
+        #               box[0]+[box_dimension[0],0,0],
+        #               box[0]+[0,box_dimension[1],0],
+        #               box[0]+[0,0,box_dimension[2]],
+        #               box[0]+[box_dimension[0],box_dimension[1],0],
+        #               box[0]+[0,box_dimension[1],box_dimension[2]],
+        #               box[0]+[box_dimension[0],0,box_dimension[2]],
+        #               box[1]]
+        box_points = []
+        for box_edge in box_edges:
+            box_dimension_copy = box_dimension.copy()
+            box_dimension_copy[box_edge == 0] = 0
+            box_points.append(box_center+box_dimension_copy)
+        distance_to_plane = np.abs(np.dot(box_center - triangle[0], tri_normal))
+        # 计算 box 的投影半径
+        box_radius = np.abs(np.dot(box[1] - box[0], tri_normal))
+        if distance_to_plane < box_radius:
+        # 计算三角形一边与包围盒一边的叉乘向量
+            for triangle_edge in triangle_edges:
+                for box_edge in box_edges:
+                    edge_cross = np.cross(triangle_edge, box_edge)
+                            # 计算三角形在叉乘向量上的投影
+                    tri_proj = separatingAxis.project_calculation([triangle[0], triangle[1], triangle[2]], edge_cross)
+
+                    # 计算包围盒在叉乘向量上的投影
+                    box_proj = separatingAxis.project_calculation([box_points[0], box_points[1], box_points[2], box_points[3]], edge_cross)
+                    if not separatingAxis.overlap_on_axis(tri_proj, box_proj):
+                        # 三角形和包围盒在叉乘向量上的投影不重叠或距离超过半径，不相交
+                        return False
+        # 三角形和包围盒相交
+        return True
+    @cuda.jit
+    def dot(a, b, result):
+        i = cuda.grid(1)
+        if i < a.shape[0]:
+            cuda.atomic.add(result, 0, a[i] * b[i])
+    @cuda.jit
+    def sum(a,b,result):
+        i = cuda.grid(1)
+        if i < a.shape[0]:
+            result[i] = a[i] + b[i]
+    @cuda.jit
+    def sub(a,b,result):
+        i = cuda.grid(1)
+        if i < a.shape[0]:
+            result[i] = a[i] - b[i]
+    @cuda.jit
+    def cross(a,b,result):
+        i = cuda.grid(1)
+        if i < a.shape[0]:
+            if i == 0:
+                result[i] = a[1] * b[2] - a[2] * b[1]
+            if i == 1:
+                result[i] = -a[0] * b[2] + a[2] * b[0]
+            if i == 2:
+                result[i] = a[0] * b[1] + a[1] * b[0]
+
+    @cuda.jit
+    def triangle_edge(points,edges):
+        i = cuda.grid(1)
+        if i < edges.shape[0]:
+            result = cuda.local.array(3,dtype=numba.float32)
+            if i == 0:
+                separatingAxis.sub(points[1],points[2],result)
+            if i == 1:
+                separatingAxis.sub(points[0],points[2],result)
+            if i == 2:
+                separatingAxis.sub(points[0],points[1],result)
+            edges[i] = result
+    @cuda.jit      
+    def distance_to_plane(vec,normal_vec,result):
+        separatingAxis.dot(vec,normal_vec,result)
+        result[0] = math.fabs(result[0])
+
+    @cuda.jit
+    def collision_3d_triangle_box_cuda(triangles, boxes):
+        thread= cuda.grid(1)
+        if thread < triangles.shape[0]:
+            triangle = triangles[thread]
+            triangle_edges = cuda.local.array(3,dtype=numba.float32)
+            separatingAxis.triangle_edge(triangle,triangle_edges)
+            tri_normal = triangle[3]
+            box_edges = [[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,0,1],[1,1,1]]
+            for box in boxes:
+                box_center = box[1]
+                box_dimension = box[2]    #box = [[min,max],center,dimension]
+                box_points = cuda.local.array((8, 3), dtype=numba.float32)
+                for i,box_edge in enumerate(box_edges):
+                    box_dimension_copy = box_dimension.copy()
+                    box_dimension_copy[box_edge == 0] = 0
+                    separatingAxis.sum(box_center,box_dimension_copy,box_points[i])
+                vector = cuda.local.array(3,dtype=numba.float32)
+                separatingAxis.sub(box_center,triangle[0],vector)
+                distance_to_plane = cuda.local.array(1,dtype=numba.float32)
+                separatingAxis.distance_to_plane(vector,tri_normal,distance_to_plane)
+                
+
+
 if __name__ == "__main__":
     def transferNode2box(nodes):
         boundingBoxes = []
@@ -274,6 +403,7 @@ if __name__ == "__main__":
     triangles = voxl.read_stl()
     bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
     maxBoundingBox = voxl.maxBoundingBox()
+    minBoundingBox = voxl.minBoundingBox()
     octreeTest = OctreeOperator(maxBoundingBox)
     targetboundingbox =bounding_boxes[0].T
     targetboundingboxes =np.transpose(bounding_boxes, (0, 2, 1))
@@ -295,9 +425,9 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 10
+    target_depth= 12
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=7,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1]])
     depth = intersected_nodes[0].depth
     while depth<target_depth:
         intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
