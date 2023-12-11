@@ -9,6 +9,7 @@ from functools import partial
 from numba import cuda
 import numba
 import math
+from Cuda_operator import *
 
 class BoundingboxTool:
     def __init__(self,stl_path) -> None:
@@ -291,14 +292,6 @@ class separatingAxis:
         # 计算 box 中心到平面的距离
         box_center = (box[0] + box[1]) / 2
         box_dimension = (box[1]-box[0])/2
-        # box_points = [box[0],
-        #               box[0]+[box_dimension[0],0,0],
-        #               box[0]+[0,box_dimension[1],0],
-        #               box[0]+[0,0,box_dimension[2]],
-        #               box[0]+[box_dimension[0],box_dimension[1],0],
-        #               box[0]+[0,box_dimension[1],box_dimension[2]],
-        #               box[0]+[box_dimension[0],0,box_dimension[2]],
-        #               box[1]]
         box_points = []
         for box_edge in box_edges:
             box_dimension_copy = box_dimension.copy()
@@ -322,70 +315,39 @@ class separatingAxis:
                         return False
         # 三角形和包围盒相交
         return True
-    @cuda.jit
-    def dot(a, b, result):
-        i = cuda.grid(1)
-        if i < a.shape[0]:
-            cuda.atomic.add(result, 0, a[i] * b[i])
-    @cuda.jit
-    def sum(a,b,result):
-        i = cuda.grid(1)
-        if i < a.shape[0]:
-            result[i] = a[i] + b[i]
-    @cuda.jit
-    def sub(a,b,result):
-        i = cuda.grid(1)
-        if i < a.shape[0]:
-            result[i] = a[i] - b[i]
-    @cuda.jit
-    def cross(a,b,result):
-        i = cuda.grid(1)
-        if i < a.shape[0]:
-            if i == 0:
-                result[i] = a[1] * b[2] - a[2] * b[1]
-            if i == 1:
-                result[i] = -a[0] * b[2] + a[2] * b[0]
-            if i == 2:
-                result[i] = a[0] * b[1] + a[1] * b[0]
+    
 
+    @staticmethod                      
     @cuda.jit
-    def triangle_edge(points,edges):
-        i = cuda.grid(1)
-        if i < edges.shape[0]:
-            result = cuda.local.array(3,dtype=numba.float32)
-            if i == 0:
-                separatingAxis.sub(points[1],points[2],result)
-            if i == 1:
-                separatingAxis.sub(points[0],points[2],result)
-            if i == 2:
-                separatingAxis.sub(points[0],points[1],result)
-            edges[i] = result
-    @cuda.jit      
-    def distance_to_plane(vec,normal_vec,result):
-        separatingAxis.dot(vec,normal_vec,result)
-        result[0] = math.fabs(result[0])
+    def collision_3d_triangle_box_cuda(triangles, nodes,intersected_nodes):
+        tri_thread,node_thread= cuda.grid(2)
+        if tri_thread < triangles.shape[0] and node_thread < nodes.shape[0]:
+            triangle = triangles[tri_thread]
+            node = nodes[node_thread]
+            triangle_edges = triangle.edges
+            tri_normal = triangle.normal
+            node_edges = [[1,0,0],[0,1,0],[0,0,1]]
+            node_center = node.center
+            node_dimension = [node.size/2, node.size/2, node.size/2] 
+            node_vertex = node.vertex
+            vector = cuda.local.array(3,dtype=numba.float32)
+            sub(node_center,triangle.points[0],vector)
+            distance2plane = cuda.local.array(1,dtype=numba.float32)
+            distance_to_plane(vector,tri_normal,distance2plane)
+            node_radius = cuda.local.array(1,dtype=numba.float32)
+            dot(node_dimension,tri_normal,node_radius)
+            node_radius[0] = math.fabs(node_radius[0])
+            if distance_to_plane[0] < node_radius[0]:
+                normal_vectors = cuda.local.array(9,dtype=numba.float32)
+                tri_proj = cuda.local.array([3,9,1],dtype=numba.float32)
+                box_proj = cuda.local.array([8,9,1],dtype=numba.float32)
+                normal_vector(triangle_edges, node_edges,normal_vectors)
+                        # 计算三角形在叉乘向量上的投影
+                project_calculation_cuda(triangle.points, normal_vectors,tri_proj)
 
-    @cuda.jit
-    def collision_3d_triangle_box_cuda(triangles, boxes):
-        thread= cuda.grid(1)
-        if thread < triangles.shape[0]:
-            triangle = triangles[thread]
-            triangle_edges = cuda.local.array(3,dtype=numba.float32)
-            separatingAxis.triangle_edge(triangle,triangle_edges)
-            tri_normal = triangle[3]
-            box_edges = [[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,0,1],[1,1,1]]
-            for box in boxes:
-                box_center = box[1]
-                box_dimension = box[2]    #box = [[min,max],center,dimension]
-                box_points = cuda.local.array((8, 3), dtype=numba.float32)
-                for i,box_edge in enumerate(box_edges):
-                    box_dimension_copy = box_dimension.copy()
-                    box_dimension_copy[box_edge == 0] = 0
-                    separatingAxis.sum(box_center,box_dimension_copy,box_points[i])
-                vector = cuda.local.array(3,dtype=numba.float32)
-                separatingAxis.sub(box_center,triangle[0],vector)
-                distance_to_plane = cuda.local.array(1,dtype=numba.float32)
-                separatingAxis.distance_to_plane(vector,tri_normal,distance_to_plane)
+                # 计算包围盒在叉乘向量上的投影
+                project_calculation_cuda(node.vertex, normal_vectors,box_proj)
+            
                 
 
 
@@ -425,23 +387,19 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 12
+    target_depth= 2
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1]])
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=2,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1]])
     depth = intersected_nodes[0].depth
     while depth<target_depth:
         intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
         a = []
         for group in intersected_nodes:
             a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
-        # intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
-        intersected_nodes = a
         depth = intersected_nodes[0].depth
     end = time.time()
     duration = end - start
-    # intersected_nodes_2 = octreeTest.findBoundingNodesAll_cuda(target_depth=8,target_bounding_boxes=targetboundingboxes,intersected_nodes=[intersected_nodes[-1]])
     octreeTest.all_leaf_nodes()
-    # print("GPU Duration")
     resolution = octreeTest.root.size*(0.5**(target_depth))
     print("Computation time", duration)
     print("resolution",resolution)
