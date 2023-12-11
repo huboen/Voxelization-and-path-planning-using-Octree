@@ -387,15 +387,16 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 2
+    target_depth= 6
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=2,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1]])
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1],octreeTest.root.children[-1]])
     depth = intersected_nodes[0].depth
     while depth<target_depth:
         intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
         a = []
         for group in intersected_nodes:
             a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
+        intersected_nodes = a
         depth = intersected_nodes[0].depth
     end = time.time()
     duration = end - start
@@ -406,7 +407,7 @@ if __name__ == "__main__":
     print("how many leafnodes",len(octreeTest.leafnodes))
     print("how many intersected nodes",len(intersected_nodes))
     node_boxes = transferNode2box(intersected_nodes)
-    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
+    octreeTest.visualize(stl_path=data_path,boundingboxes=None,octree=False)
     
 
     # octreeTest.all_leaf_nodes()   
