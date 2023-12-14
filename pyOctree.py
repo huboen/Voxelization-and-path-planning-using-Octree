@@ -200,7 +200,10 @@ class Octree:
     def center(self,boundingbox):
         center = 0.5*(boundingbox[0]+boundingbox[1])
         return center    
-
+    
+    def __eq__(self, other) -> bool:
+        if isinstance(other, Octree):
+            return other.center == self.center
         
         
 if __name__ == "__main__":

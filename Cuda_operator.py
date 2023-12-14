@@ -3,9 +3,11 @@ import numpy as np
 import numba
 import math
 @cuda.jit(device=True)
-def dot(a, b, result):
+def dot(a, b):
+    result = 0
     for i in range(a.shape[0]):
-        result[0]+=a[i]*b[i]
+        result+=a[i]*b[i]
+    return result
 @cuda.jit(devide=True)
 def sum(a,b,result):
     for i in range(a.shape[0]):
@@ -43,50 +45,47 @@ def distance_to_plane(vec,normal_vec,result):
 
 @cuda.jit
 def normal_vector(edges1, edges2, result):
-    i, j = cuda.grid(2)
-    if i <edges1.shape[0] and j <edges2.shape[0]:
-            result[i,j, 0] = edges1[i, 1] * edges2[j, 2] - edges1[i, 2] * edges2[j, 1]
-            result[i,j, 1] = -edges1[i, 0] * edges2[j, 2] + edges1[i, 2] * edges2[j, 0]
-            result[i,j, 2] = edges1[i, 0] * edges2[j, 1] - edges1[i, 1] * edges2[j, 0]
+    for i in range(edges1.shape[0]):
+        for j in range(edges2.shape[0]):
+            result[i+j, 0] = edges1[i, 1] * edges2[j, 2] - edges1[i, 2] * edges2[j, 1]
+            result[i+j, 1] = -edges1[i, 0] * edges2[j, 2] + edges1[i, 2] * edges2[j, 0]
+            result[i+j, 2] = edges1[i, 0] * edges2[j, 1] - edges1[i, 1] * edges2[j, 0]
             
 
 @cuda.jit
-def project_calculation_cuda(points,axises,result):
-    i,j= cuda.grid(2)
-    if i < points.shape[0] and j < axises.shape[0]:
-        dot(points[i],axises[j],result[i,j])
+def project_calculation_cuda(points,axis,result):
+    for i in range(points.shape[0]) :
+        result[i] = dot(points[i],axis)
+
+@cuda.jit(device=True)
+def abs(vector,result):
+    for i in range(len(vector)):
+        result[i] = math.fabs(vector[i])
+
+@cuda.jit(device=True)
+def overlap_check(vectors1,vectors2,result):
+    for i in range(vectors1.shape[1]):
+        vector1_min = min(vectors1[:,i,0])
+        vector1_max = max(vectors1[:,i,0])
+        vector2_min = min(vectors2[:,i,0])
+        vector2_max = max(vectors2[:,i,0])
+        if vector1_max < vector2_min or vector1_min>vector2_max:
+            pass
+        else:
+            result[0] = True
+
+@cuda.jit(device = True)
+def max_radius(normals,dimension,radius):
+    radius[0] = normals[0]*dimension[0]/math.sqrt(normals[0]**2 +normals[1]**2 +normals[2]**2)
+    radius[1] = normals[1]*dimension[1]/math.sqrt(normals[0]**2 +normals[1]**2 +normals[2]**2)
+    radius[2] = normals[2]*dimension[2]/math.sqrt(normals[0]**2 +normals[1]**2 +normals[2]**2)
 
 
 
-@cuda.jit
-def collision_3d_triangle_box_cuda(triangles_vertex,triangles_normals,nodes_center,nodes_vertex,node_size, results):
-    
-    tri_thread,node_thread= cuda.grid(2)
-    if tri_thread < triangles_normals[0].shape[0] and node_thread < nodes_center[0].shape[0]:
-        d_triangle_edges = cuda.local.array((3,3),dtype=np.float32)
-        triangle_edge(triangles_vertex[tri_thread],results[tri_thread])
-        tri_normal = triangles_normals[tri_thread]
-        node_edges = [[1,0,0],[0,1,0],[0,0,1]]
-        d_node_center = nodes_center[node_thread]
-        d_node_vertex = nodes_vertex[node_thread]
-        d_tri_vertex = triangles_vertex[tri_thread]
-        d_node_dimension = [node_size[node_thread]/2,node_size[node_thread]/2,node_size[node_thread]/2]
-        vector = cuda.local.array(3,dtype=numba.float32)
-        sub(d_node_center,d_tri_vertex[0],vector)
-        distance2plane = cuda.local.array(1,dtype=numba.float32)
-        distance_to_plane(vector,tri_normal,distance2plane)
-        # node_radius = cuda.local.array(1,dtype=numba.float32)
-        # tri_normal_abs= [math.fabs(tri_normal[tri_thread,0]),math.fabs(tri_normal[tri_thread,1]),math.fabs(tri_normal[tri_thread,2])]
-        # dot(d_node_dimension,tri_normal_abs,node_radius)
-        # if distance_to_plane[0] < node_radius[0]:
-        #     normal_vectors = cuda.local.array(9,dtype=numba.float32)
-        #     tri_proj = cuda.local.array([3,9,1],dtype=numba.float32)
-        #     box_proj = cuda.local.array([8,9,1],dtype=numba.float32)
-        #     normal_vector(d_triangle_edges, node_edges,normal_vectors)
-        #             # 计算三角形在叉乘向量上的投影
-        #     project_calculation_cuda(d_tri_vertex, normal_vectors,tri_proj)
-
-        #     # 计算包围盒在叉乘向量上的投影
-        #     project_calculation_cuda(d_node_vertex, normal_vectors,box_proj)
-            
-
+@cuda.jit(device = True)
+def overlap_on_axis(triangle_vertex,nodes_vertex,axis,tri_proj,node_proj):
+    project_calculation_cuda(triangle_vertex,axis,tri_proj)
+    project_calculation_cuda(nodes_vertex,axis,node_proj)
+    if max(tri_proj)<min(node_proj) or min(tri_proj)>max(node_proj):
+        return False
+    return True

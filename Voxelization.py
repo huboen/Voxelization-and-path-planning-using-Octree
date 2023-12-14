@@ -25,8 +25,9 @@ class BoundingboxTool:
         # obtain the triangles
         # triangles = mesh_data.triangles
         triangles = mesh_data.vectors
+        normal_vectors = mesh_data.normals
         
-        return triangles
+        return triangles, normal_vectors
 
     @staticmethod
     def boundingBoxes(triangles):
@@ -52,17 +53,22 @@ class BoundingboxTool:
         return bounding_box
     
     def maxBoundingBox(self):
-        vertices= self.read_stl(self.stl_path).reshape(-1,3)
+        triangles,_=self.read_stl(self.stl_path)
+        vertices= triangles.reshape(-1,3)
         min_bound = np.min(vertices,axis=0)
         max_bound = np.max(vertices,axis=0)
         max_bounding_box = [min_bound,max_bound]
         return max_bounding_box
 
     def minBoundingBox(self):
-        triangles = self.read_stl()
+        triangles,_ = self.read_stl()
         bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
         size = np.min(np.max(bounding_boxes[:,:,1]-bounding_boxes[:,:,0],axis=1))
         return size
+    
+    staticmethod
+    def get_tri_info():
+        pass
         
         
  
@@ -136,8 +142,8 @@ class OctreeOperator(Octree):
     def boundingBoxIntersect_cuda(centers, sizes, targetBoundingBoxes, results,output_test = None):
         thread= cuda.grid(1)
         if thread < targetBoundingBoxes.shape[0]:
-            # miniNode, maxNode = centers[i] - sizes[i] / 2, centers[i] + sizes[i] / 2 
-                # 先获取 targetBoundingBoxes[i] 切片
+            # miniNode, maxNode = centers - sizes / 2, centers + sizes / 2 
+                # 先获取 targetBoundingBoxes 切片
                 if output_test is not None:
                     output_test[thread] = thread
                 bbox_slice = targetBoundingBoxes[thread]
@@ -244,7 +250,7 @@ class OctreeOperator(Octree):
         sizes = []
         for node in nodes:
             centers.append(node.center)
-            sizes.append(np.full(3, node.size, dtype=np.float64))
+            sizes.append(np.full(3, node.size, dtype=np.float32))
         return np.array(centers), np.array(sizes)
     @staticmethod
     def reduce_size(arr):
@@ -258,7 +264,7 @@ class OctreeOperator(Octree):
                 if len(intersected_nodes_old[i].children) :
                     intersected_tree_nodes_new.extend(intersected_nodes_old[i].children)
                 else:
-                    intersected_tree_nodes_new.extend(intersected_nodes_old)
+                    intersected_tree_nodes_new.extend(intersected_nodes_old[i])
         return intersected_tree_nodes_new
     @staticmethod
     def transferNode2box(nodes):
@@ -272,84 +278,137 @@ class OctreeOperator(Octree):
 class separatingAxis:
     def __init__(self) -> None:
         pass
+    
+    @staticmethod
+    def collision_3d_triangle_box(triangle, tri_normal, node):
+        # tri_normal /= np.linalg.norm(tri_normal)
 
-    @staticmethod
-    def overlap_on_axis(triangle_proj, box_proj):
-    # 判断投影是否重叠
-        return max(triangle_proj[0], box_proj[0]) <= min(triangle_proj[1], box_proj[1])
-    @staticmethod
-    def project_calculation(points, axis):
-        # 计算所有点在轴上的投影，并返回最小和最大值
-        values = [np.dot(point, axis) for point in points]
-        return min(values), max(values)
-    @staticmethod
-    def collision_3d_triangle_box(triangle, box):
-        # 计算三角形的法向量
-        tri_normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
-        tri_normal /= np.linalg.norm(tri_normal)
-        triangle_edges = [triangle[1] - triangle[0],triangle[2] - triangle[0],triangle[2] - triangle[1]]
-        box_edges = [[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,0,1]]
-        # 计算 box 中心到平面的距离
-        box_center = (box[0] + box[1]) / 2
-        box_dimension = (box[1]-box[0])/2
-        box_points = []
-        for box_edge in box_edges:
-            box_dimension_copy = box_dimension.copy()
-            box_dimension_copy[box_edge == 0] = 0
-            box_points.append(box_center+box_dimension_copy)
-        distance_to_plane = np.abs(np.dot(box_center - triangle[0], tri_normal))
-        # 计算 box 的投影半径
-        box_radius = np.abs(np.dot(box[1] - box[0], tri_normal))
-        if distance_to_plane < box_radius:
-        # 计算三角形一边与包围盒一边的叉乘向量
-            for triangle_edge in triangle_edges:
-                for box_edge in box_edges:
-                    edge_cross = np.cross(triangle_edge, box_edge)
-                            # 计算三角形在叉乘向量上的投影
-                    tri_proj = separatingAxis.project_calculation([triangle[0], triangle[1], triangle[2]], edge_cross)
+        # # 分离轴1: 三角形法向量
+        if not separatingAxis.overlap_on_axis(triangle, tri_normal, node):
+            return False
 
-                    # 计算包围盒在叉乘向量上的投影
-                    box_proj = separatingAxis.project_calculation([box_points[0], box_points[1], box_points[2], box_points[3]], edge_cross)
-                    if not separatingAxis.overlap_on_axis(tri_proj, box_proj):
-                        # 三角形和包围盒在叉乘向量上的投影不重叠或距离超过半径，不相交
-                        return False
-        # 三角形和包围盒相交
+        # # 分离轴2-4: 三角形的边
+        tri_edges = [triangle[1] - triangle[0], triangle[2] - triangle[1], triangle[0] - triangle[2]]
+        for axis in tri_edges:
+            if not separatingAxis.overlap_on_axis(triangle, axis, node):
+                return False
+
+        # # 分离轴5-7: 立方体的边
+        node_edges = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        for axis in node_edges:
+            if not separatingAxis.overlap_on_axis(triangle, axis, node):
+                return False
+            
+        for tri_edge in tri_edges:
+            for node_edge in node_edges:
+                axis = np.cross(tri_edge,node_edge)
+                if not separatingAxis.overlap_on_axis(triangle, axis, node):
+                    return False
+        # 如果所有轴上的投影都有交集，则相交
         return True
     
+    @staticmethod
+    def overlap_on_axis(triangle, axis, node):
+        tri_proj = [np.dot(tri_vertex, axis) for tri_vertex in triangle]
+        node_vertexes = separatingAxis.node_vertexes_from_center_and_size(node.center, node.size)
+        node_proj = [np.dot(node_vertex, axis) for node_vertex in node_vertexes]
 
-    @staticmethod                      
+        return not (max(tri_proj) < min(node_proj) or min(tri_proj) > max(node_proj))
+    
+    @staticmethod
+    def node_vertexes_from_center_and_size(center, size):
+        return [
+            [center[0] - size / 2, center[1] - size / 2, center[2] - size / 2],
+            [center[0] - size / 2, center[1] - size / 2, center[2] + size / 2],
+            [center[0] - size / 2, center[1] + size / 2, center[2] - size / 2],
+            [center[0] - size / 2, center[1] + size / 2, center[2] + size / 2],
+            [center[0] + size / 2, center[1] - size / 2, center[2] - size / 2],
+            [center[0] + size / 2, center[1] - size / 2, center[2] + size / 2],
+            [center[0] + size / 2, center[1] + size / 2, center[2] - size / 2],
+            [center[0] + size / 2, center[1] + size / 2, center[2] + size / 2]
+        ]
+
+        
+    @staticmethod
     @cuda.jit
-    def collision_3d_triangle_box_cuda(triangles, nodes,intersected_nodes):
+    def collision_3d_triangle_box_cuda(triangles_vertex,triangles_normals,nodes_center,nodes_vertex,node_half_size,node_edges, results):
+        
         tri_thread,node_thread= cuda.grid(2)
-        if tri_thread < triangles.shape[0] and node_thread < nodes.shape[0]:
-            triangle = triangles[tri_thread]
-            node = nodes[node_thread]
-            triangle_edges = triangle.edges
-            tri_normal = triangle.normal
-            node_edges = [[1,0,0],[0,1,0],[0,0,1]]
-            node_center = node.center
-            node_dimension = [node.size/2, node.size/2, node.size/2] 
-            node_vertex = node.vertex
-            vector = cuda.local.array(3,dtype=numba.float32)
-            sub(node_center,triangle.points[0],vector)
-            distance2plane = cuda.local.array(1,dtype=numba.float32)
-            distance_to_plane(vector,tri_normal,distance2plane)
-            node_radius = cuda.local.array(1,dtype=numba.float32)
-            dot(node_dimension,tri_normal,node_radius)
-            node_radius[0] = math.fabs(node_radius[0])
-            if distance_to_plane[0] < node_radius[0]:
-                normal_vectors = cuda.local.array(9,dtype=numba.float32)
-                tri_proj = cuda.local.array([3,9,1],dtype=numba.float32)
-                box_proj = cuda.local.array([8,9,1],dtype=numba.float32)
-                normal_vector(triangle_edges, node_edges,normal_vectors)
-                        # 计算三角形在叉乘向量上的投影
-                project_calculation_cuda(triangle.points, normal_vectors,tri_proj)
-
-                # 计算包围盒在叉乘向量上的投影
-                project_calculation_cuda(node.vertex, normal_vectors,box_proj)
-            
-                
-
+        if tri_thread < triangles_normals.shape[0] and node_thread < nodes_center.shape[0]:
+            d_triangle_edges = cuda.local.array((3,3),dtype=np.float32)
+            tri_normal = triangles_normals[tri_thread]
+            d_node_center = nodes_center[node_thread]
+            d_node_vertex = nodes_vertex[node_thread]
+            d_tri_vertex = triangles_vertex[tri_thread]
+            d_node_edges = node_edges
+            triangle_edge(d_tri_vertex,d_triangle_edges)
+            tri_proj = cuda.local.array(3,dtype=np.float32)
+            node_proj = cuda.local.array(8,dtype=np.float32)
+            if not overlap_on_axis(d_tri_vertex,d_node_vertex,tri_normal,tri_proj,node_proj):
+                return
+            for axis in d_triangle_edges:
+                if not overlap_on_axis(d_tri_vertex,d_node_vertex,axis,tri_proj,node_proj):
+                    return
+            for axis in d_node_edges:
+                if not overlap_on_axis(d_tri_vertex,d_node_vertex,axis,tri_proj,node_proj):
+                    return
+            for d_tri_edge in d_triangle_edges:
+                for d_node_edge in d_node_edges:
+                    axis = cuda.local.array(3,dtype=np.float32)
+                    cross(d_tri_edge,d_node_edge,axis)
+                    if not overlap_on_axis(d_tri_vertex,d_node_vertex,axis,tri_proj,node_proj):
+                        return
+            results[tri_thread,node_thread] = True
+    @staticmethod
+    def node_info(nodes):
+        vertexes = []
+        centers = []
+        sizes = []
+        for i in range(len(nodes)):
+            node_center = nodes[i].center
+            size = nodes[i].size
+            centers.append(node_center)
+            sizes.append([size/2,size/2,size/2])
+            vertexes.append([[node_center[0]- size/2,node_center[1] - size/2,node_center[2] - size/2],
+                            [node_center[0]- size/2,node_center[1]  - size/2,node_center[2]  + size/2],
+                            [node_center[0]- size/2,node_center[1]  + size/2,node_center[2]  - size/2],
+                            [node_center[0]- size/2,node_center[1]  + size/2,node_center[2]  + size/2],
+                            [node_center[0]+ size/2,node_center[1]  - size/2,node_center[2]  - size/2],
+                            [node_center[0]+ size/2,node_center[1]  - size/2,node_center[2]  + size/2],
+                            [node_center[0]+ size/2,node_center[1]  + size/2,node_center[2]  - size/2],
+                            [node_center[0]+ size/2,node_center[1]  + size/2,node_center[2]  + size/2]])
+        vertexes = np.array(vertexes,dtype=np.float32)
+        centers = np.array(centers,dtype=np.float32)
+        sizes = np.array(sizes,dtype=np.float32)
+        return vertexes,centers, sizes
+    
+    @staticmethod
+    def separatingAxis_calculation(triangles_vertexes,triangles_normals,nodes,GPU_memory = None):
+        if GPU_memory is None:
+            GPU_memory = 8 # The GPU I use is 8 GB
+        node_vertexes,node_centers,node_half_sizes = separatingAxis.node_info(nodes)
+        node_1 = node_vertexes[0]
+        node_vectors = [[0,0,1],[0,1,0],[1,0,0]]
+        result = []
+        threads_per_block = (16,16)
+        blocks_per_grid_x = (triangles_normals.shape[0]+ threads_per_block[0]- 1) // threads_per_block[0]
+        blocks_per_grid_y = (len(nodes)+ threads_per_block[1] - 1) // threads_per_block[1]
+        blocks_per_grid = (blocks_per_grid_x,blocks_per_grid_y)
+        d_results = cuda.device_array((triangles_vertexes.shape[0],node_centers.shape[0]),dtype=np.int8)
+        d_tri_vertexes = cuda.to_device(np.ascontiguousarray(triangles_vertexes))
+        d_tri_normals = cuda.to_device(np.ascontiguousarray(triangles_normals))
+        d_node_centers = cuda.to_device(np.ascontiguousarray(node_centers))
+        d_node_vertexes = cuda.to_device(np.ascontiguousarray(node_vertexes))
+        d_node_sizes = cuda.to_device(np.ascontiguousarray(node_half_sizes))
+        d_node_vectors = cuda.to_device(np.ascontiguousarray(node_vectors))
+        separatingAxis.collision_3d_triangle_box_cuda[blocks_per_grid,threads_per_block](d_tri_vertexes,d_tri_normals,d_node_centers,d_node_vertexes ,d_node_sizes,d_node_vectors,d_results)
+        begin = time.time()
+        result=d_results.copy_to_host()
+        end = time.time()
+        print("nodes_amount",len(nodes),"time",end-begin,"storage",result.nbytes/(1024*1024*1024))
+        result = OctreeOperator.reduce_size(result)
+        intersected_nodes=np.delete(nodes,np.where(result==False))
+        return intersected_nodes 
 
 if __name__ == "__main__":
     def transferNode2box(nodes):
@@ -362,7 +421,8 @@ if __name__ == "__main__":
     data_path = "B:\Master arbeit\DONUT2.stl"
     # data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
     voxl = BoundingboxTool(data_path)
-    triangles = voxl.read_stl()
+    triangles,normalVectors = voxl.read_stl()
+    normalVectors = np.array(normalVectors,dtype=np.float32)
     bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
     maxBoundingBox = voxl.maxBoundingBox()
     minBoundingBox = voxl.minBoundingBox()
@@ -387,27 +447,44 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 6
+    target_depth= 7
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=9,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[1],octreeTest.root.children[-1]])
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0],octreeTest.root.children[-1]])
     depth = intersected_nodes[0].depth
+    GPU_memory = 8
     while depth<target_depth:
+        split_size = (1/2*GPU_memory*1024*1024*1024)//targetboundingboxes.shape[0]
         intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
         a = []
         for group in intersected_nodes:
             a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
         intersected_nodes = a
         depth = intersected_nodes[0].depth
+    size1 = len(intersected_nodes)
+    intersected_nodes_splited = np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/30000))
+    a=[]
+    for group in intersected_nodes_splited:
+        a.extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
+    intersected_nodes = a
+    size2 = len(intersected_nodes)
     end = time.time()
     duration = end - start
     octreeTest.all_leaf_nodes()
+    other_nodes = [node for node in octreeTest.leafnodes if node.depth<target_depth]
     resolution = octreeTest.root.size*(0.5**(target_depth))
+    b = separatingAxis.separatingAxis_calculation(triangles,normalVectors,other_nodes)
+    detect = separatingAxis.collision_3d_triangle_box(triangles[0],normalVectors[0],other_nodes[0])
+    if detect:
+        print("intersected")
     print("Computation time", duration)
     print("resolution",resolution)
     print("how many leafnodes",len(octreeTest.leafnodes))
     print("how many intersected nodes",len(intersected_nodes))
-    node_boxes = transferNode2box(intersected_nodes)
-    octreeTest.visualize(stl_path=data_path,boundingboxes=None,octree=False)
+    print("how many other leafnodes",len(other_nodes))
+    print("change of intersected nodes", size2-size1)
+    print("b",len(b))
+    node_boxes = transferNode2box(other_nodes)
+    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes[100:500],octree=False)
     
 
     # octreeTest.all_leaf_nodes()   
