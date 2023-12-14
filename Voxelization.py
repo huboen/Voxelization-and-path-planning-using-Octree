@@ -10,6 +10,8 @@ from numba import cuda
 import numba
 import math
 from Cuda_operator import *
+import  openpyxl
+import os
 
 class BoundingboxTool:
     def __init__(self,stl_path) -> None:
@@ -266,6 +268,7 @@ class OctreeOperator(Octree):
                 else:
                     intersected_tree_nodes_new.extend(intersected_nodes_old[i])
         return intersected_tree_nodes_new
+    
     @staticmethod
     def transferNode2box(nodes):
         boundingBoxes = []
@@ -274,6 +277,34 @@ class OctreeOperator(Octree):
             max_bound = np.array(node.center)+ node.size
             boundingBoxes.append([min_bound,max_bound])
         return boundingBoxes
+    
+    @staticmethod
+    def write_to_excel(nodes,name):
+        if os.path.exists(name):
+            print(f"File {name} already exists. Choose a different file name.")
+            return
+        workbook = openpyxl.Workbook()
+        for i in range(0, len(nodes), 1048575):  # 每个文件最多写入1048575行
+            workbook = openpyxl.Workbook()
+            sheet = workbook.active
+
+            sheet['A1'] = 'center_x'
+            sheet['B1'] = 'center_Y'
+            sheet['C1'] = 'center_Z'
+            sheet['D1'] = 'size'
+            sheet['E1'] = "depth"
+
+            for j in range(i, min(i + 1048575, len(nodes))):
+                row = j - i + 2
+                sheet.cell(row=row, column=1, value=nodes[j].center[0])
+                sheet.cell(row=row, column=2, value=nodes[j].center[1])
+                sheet.cell(row=row, column=3, value=nodes[j].center[2])
+                sheet.cell(row=row, column=4, value=nodes[j].size)
+                sheet.cell(row=row, column=5, value=nodes[j].depth)
+        # path = "B:\\Master arbeit\\" + name
+    # 构建完整的文件路径
+        workbook.save(name)
+        print("created the node_data")
     
 class separatingAxis:
     def __init__(self) -> None:
@@ -409,7 +440,9 @@ class separatingAxis:
         result = OctreeOperator.reduce_size(result)
         intersected_nodes=np.delete(nodes,np.where(result==False))
         return intersected_nodes 
+    
 
+        
 if __name__ == "__main__":
     def transferNode2box(nodes):
         boundingBoxes = []
@@ -447,9 +480,9 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 7
+    target_depth= 10
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=[octreeTest.root.children[0],octreeTest.root.children[-1]])
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
     depth = intersected_nodes[0].depth
     GPU_memory = 8
     while depth<target_depth:
@@ -460,6 +493,8 @@ if __name__ == "__main__":
             a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
         intersected_nodes = a
         depth = intersected_nodes[0].depth
+    node_boxes = transferNode2box(intersected_nodes)
+    # octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
     size1 = len(intersected_nodes)
     intersected_nodes_splited = np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/30000))
     a=[]
@@ -472,22 +507,29 @@ if __name__ == "__main__":
     octreeTest.all_leaf_nodes()
     other_nodes = [node for node in octreeTest.leafnodes if node.depth<target_depth]
     resolution = octreeTest.root.size*(0.5**(target_depth))
-    b = separatingAxis.separatingAxis_calculation(triangles,normalVectors,other_nodes)
-    detect = separatingAxis.collision_3d_triangle_box(triangles[0],normalVectors[0],other_nodes[0])
-    if detect:
-        print("intersected")
+    other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/30000))
+    a = []
+    for group in other_nodes_splited:
+        a .extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
+    # if detect:
+    #     print("intersected")
     print("Computation time", duration)
     print("resolution",resolution)
     print("how many leafnodes",len(octreeTest.leafnodes))
     print("how many intersected nodes",len(intersected_nodes))
     print("how many other leafnodes",len(other_nodes))
     print("change of intersected nodes", size2-size1)
-    print("b",len(b))
-    node_boxes = transferNode2box(other_nodes)
-    octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes[100:500],octree=False)
+    print("is there other nodes still intersected",len(a))
+    node_boxes = transferNode2box(intersected_nodes)
+    name="node_data" + str(target_depth) +".xlsx"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir,"node_data", name,)
+    octreeTest.write_to_excel(intersected_nodes,name=file_path)
     
 
-    # octreeTest.all_leaf_nodes()   
+
+    # octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
+
 
     # 结束性能分析
     # profiler.disable()
