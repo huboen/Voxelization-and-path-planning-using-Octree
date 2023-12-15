@@ -285,23 +285,21 @@ class OctreeOperator(Octree):
             return
         workbook = openpyxl.Workbook()
         for i in range(0, len(nodes), 1048575):  # 每个文件最多写入1048575行
-            workbook = openpyxl.Workbook()
-            sheet = workbook.active
-
+            sheet = workbook.create_sheet(title=f'Sheet_{i//1048575 + 1}')
             sheet['A1'] = 'center_x'
             sheet['B1'] = 'center_Y'
             sheet['C1'] = 'center_Z'
             sheet['D1'] = 'size'
             sheet['E1'] = "depth"
 
-            for j in range(i, min(i + 1048575, len(nodes))):
+            for j in range(i, min(i+1048575, len(nodes))):
                 row = j - i + 2
                 sheet.cell(row=row, column=1, value=nodes[j].center[0])
                 sheet.cell(row=row, column=2, value=nodes[j].center[1])
                 sheet.cell(row=row, column=3, value=nodes[j].center[2])
                 sheet.cell(row=row, column=4, value=nodes[j].size)
                 sheet.cell(row=row, column=5, value=nodes[j].depth)
-        # path = "B:\\Master arbeit\\" + name
+                # path = "B:\\Master arbeit\\" + name
     # 构建完整的文件路径
         workbook.save(name)
         print("created the node_data")
@@ -441,7 +439,64 @@ class separatingAxis:
         intersected_nodes=np.delete(nodes,np.where(result==False))
         return intersected_nodes 
     
+    @staticmethod
+    @cuda.jit
+    def moeller_method(ray_origins,ray_vectors,triangles,d_epsilon,results):
+        i,j = cuda.grid(2)
+        n_rays,n_triangles = ray_origins.shape[0],triangles.shape[0]
 
+        if i <n_triangles and j < n_rays:
+            ray_origin = ray_origins[j]
+            ray_vector = ray_vectors
+            triangle = triangles[i]
+            edge1 = cuda.local.array(3,dtype=np.float32)
+            edge2 = cuda.local.array(3,dtype=np.float32)
+            sub(triangle[1],triangle[0],edge1)
+            sub(triangle[2],triangle[0],edge2)
+            epsilon = d_epsilon[0]
+            h = cuda.local.array(3,dtype=np.float32)
+            cross(ray_vector,edge2,h)
+            a = dot(edge1,h)
+            if  a < epsilon and a > -epsilon :
+                results[i,j] = False
+                # return
+            else:
+                f = 1/a
+                s = cuda.local.array(3,dtype=np.float32)
+                sub(ray_origin,triangle[0],s)
+                u = f*dot(s,h)
+                if 0 <=u<=1:
+                    q = cuda.local.array(3,dtype=np.float32)
+                    cross(s,edge1,q)
+                    v = f*dot(ray_vector,q)
+                    if 0 <=v<=1 and u+v<=1:
+                        t = f *dot(edge2,q)
+                        if t>epsilon:
+                            results[i,j] = True
+                            return
+            results[i,j]=False
+
+    @staticmethod
+    def ray_triangle_intersection(triangles,nodes):
+        _,centers,_ = separatingAxis.node_info(nodes)
+        threads_per_block = (16,16)
+        blocks_per_grid_x = (triangles.shape[0]+ threads_per_block[0]- 1) // threads_per_block[0]
+        blocks_per_grid_y = (len(nodes)+ threads_per_block[1] - 1) // threads_per_block[1]
+        blocks_per_grid = (blocks_per_grid_x,blocks_per_grid_y)
+        d_centers = cuda.to_device(np.array(centers,dtype=np.float32))
+        d_triangles = cuda.to_device(np.array(triangles,dtype=np.float32))
+        d_vector = cuda.to_device(np.array([1,0,0],dtype=np.float32))
+        d_results = cuda.device_array((triangles.shape[0],len(nodes)),dtype=np.int8)
+        d_epsilion = cuda.to_device(np.array([1e-8],dtype=np.float32))
+        separatingAxis.moeller_method[blocks_per_grid,threads_per_block](d_centers,d_vector,d_triangles,d_epsilion,d_results)
+        inner_nodes = []
+        results = d_results.copy_to_host()
+        begin = time.time()
+        results = np.sum(results,axis = 0)
+        inner_nodes = np.delete(nodes,np.where(results%2==0))
+        end = time.time()
+        print("time",end-begin)
+        return inner_nodes
         
 if __name__ == "__main__":
     def transferNode2box(nodes):
@@ -480,9 +535,9 @@ if __name__ == "__main__":
 
     # 运行你的函数
     # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 10
+    target_depth= 11
     start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=6,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
+    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=5,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
     depth = intersected_nodes[0].depth
     GPU_memory = 8
     while depth<target_depth:
@@ -496,7 +551,7 @@ if __name__ == "__main__":
     node_boxes = transferNode2box(intersected_nodes)
     # octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
     size1 = len(intersected_nodes)
-    intersected_nodes_splited = np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/30000))
+    intersected_nodes_splited = np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/40000))
     a=[]
     for group in intersected_nodes_splited:
         a.extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
@@ -507,12 +562,12 @@ if __name__ == "__main__":
     octreeTest.all_leaf_nodes()
     other_nodes = [node for node in octreeTest.leafnodes if node.depth<target_depth]
     resolution = octreeTest.root.size*(0.5**(target_depth))
-    other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/30000))
+    other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/40000))
     a = []
+    inner_nodes=[]
     for group in other_nodes_splited:
-        a .extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
-    # if detect:
-    #     print("intersected")
+        # a .extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
+        inner_nodes.extend(separatingAxis.ray_triangle_intersection(triangles,group))
     print("Computation time", duration)
     print("resolution",resolution)
     print("how many leafnodes",len(octreeTest.leafnodes))
@@ -520,15 +575,17 @@ if __name__ == "__main__":
     print("how many other leafnodes",len(other_nodes))
     print("change of intersected nodes", size2-size1)
     print("is there other nodes still intersected",len(a))
-    node_boxes = transferNode2box(intersected_nodes)
-    name="node_data" + str(target_depth) +".xlsx"
+    print("amount of inner nodes", len(inner_nodes))
+    node_boxes = transferNode2box(inner_nodes)
+    name="inner_nodes" + str(target_depth) +".xlsx"
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_dir,"node_data", name,)
-    octreeTest.write_to_excel(intersected_nodes,name=file_path)
+    file_path = os.path.join(current_dir,"node_data", name)
+    inner_nodes = [node for node in inner_nodes if node.depth != target_depth]
+    octreeTest.write_to_excel(inner_nodes,name=file_path)
     
 
 
-    # octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
+    # octreeTest.visualize(stl_path=None,boundingboxes=node_boxes,octree=False)
 
 
     # 结束性能分析
