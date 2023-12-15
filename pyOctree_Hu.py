@@ -176,25 +176,8 @@ class Octree:
             line_set.points = o3d.utility.Vector3dVector(points)
             line_set.lines = o3d.utility.Vector2iVector(edges)
             line_set_list.append(line_set)
-            # Create a cuboid representing the bounding box
-            #array([0.00794744, 0.0864054 , 0.06098304], dtype=float32)
-            #array([-0.82648194, -1.2520468 ,  0.01052197], dtype=float32)
-            #width=0.007947445, height=0.06098304, depth=0.0864054
-            # cuboid = o3d.geometry.TriangleMesh.create_box(width=0.007947445, height=0.0864054, depth=0.06098304)
-            # cuboid.translate([-0.83045566, -1.2952495 , -0.01996955])
-            # # cuboid.translate([-1.5419416427612305, -1.2957134246826172, 0.01389758288860321])
-            # cuboid.paint_uniform_color([1, 0, 0])
-            # line_set_list.append(cuboid)
-        else:
             for child_node in node.children:
                 self.__create_lines__(child_node, line_set_list)
-        # create axis
-        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-        # axis.translate(node.center)
-        # line_set_list.append(axis)
-    def update(self,node):
-        pass
-    #calculate the maximum depth of the octree
     def max_depth(self):
         self.all_leaf_nodes
         depth = np.array(list(node.depth for node in self.leafnodes))
@@ -207,7 +190,7 @@ class Octree:
     
     def minimum_center_z(self,node = None, result = None):
         if result == None and node == None:
-            node = self.root()
+            node = self.root
             result = self.root.center[2]
         if not node.children:
             if result > node.center[2]:
@@ -216,48 +199,19 @@ class Octree:
             if result >self.minimum_center_z(node,result):
                 result = self.minimum_center_z(node,result)
         return result
+    
+    @staticmethod
+    def update(intersected_nodes,inner_nodes):
+        for node in intersected_nodes:
+            node.label = 1
+        for node in inner_nodes:
+            node.label = 0.5
+
+
 
     
 
         
         
 if __name__ == "__main__":
-    bounding_box = np.array([[0, 0, 0], [1, 1, 1]])
-
-    # 创建八叉树
-    octree = Octree(bounding_box)
-    test_point = [0.45, 0.45, 0.45]
-    test_node = octree.find_leaf_node(test_point)
-    root_node = octree.root
-    # print(test_node.depth())
-    for i in root_node.children:
-        target_depth = np.random.randint(2,5)
-        # print(target_depth)
-        octree.extend(i,target_depth = target_depth)
-    test_node = octree.find_leaf_node(test_point)
-    # print(octree.max_depth())
-    data_path = "B:\Master arbeit\DONUT2.stl"
-    octree.visualize(data_path)
-
-    # # 插入一些点
-    # points_to_insert = [
-    #     [0.2, 0.2, 0.2],
-    #     [0.8, 0.8, 0.8],
-    #     [0.5, 0.5, 0.5],
-    # ]
-
-    # for point in points_to_insert:
-    #     octree.insert(point)
-
-    # # 查找叶子节点
-    # test_point = [0.7, 0.7, 0.7]
-    # leaf_node = octree.find_leaf_node(test_point)
-    # print("Leaf Node Center:", leaf_node.center)
-    # print("Leaf Node Size:", leaf_node.size)
-
-    # # 尝试查找一个不在八叉树中的点
-    # unknown_point = [1.2, 1.2, 1.2]
-    # try:
-    #     octree.find_leaf_node(unknown_point)
-    # except ValueError as e:
-    #     print("Error:", e)
+    pass
