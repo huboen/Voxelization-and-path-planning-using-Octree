@@ -1,17 +1,113 @@
 import bpy
 import pandas as pd
 
-file_path = "B:\\Master arbeit\\node_data\\inner_nodes7.xlsx"  # 请确保文件路径使用双反斜杠或单斜杠
-df = pd.read_excel(file_path)
+file_path1 = "B:\\Master arbeit\\node_data\\inner_nodes6.xlsx"
+file_path2 = "B:\\Master arbeit\\node_data\\inner_nodes7.xlsx"
+file_path3 = "B:\\Master arbeit\\node_data\\inner_nodes8.xlsx"
+sheet_name = "Sheet_1"
 
-# 添加原始立方体
-bpy.ops.mesh.primitive_cube_add(size=0.078125, location=(0, 0, 0))
-cube = bpy.context.active_object
+df1 = pd.read_excel(file_path1, sheet_name=sheet_name)
+df2 = pd.read_excel(file_path2, sheet_name=sheet_name)
+df3 = pd.read_excel(file_path3, sheet_name=sheet_name)
 
-for index, row in df.iterrows():
-    x, y, z = row['center_x'], row['center_Y'], row['center_Z']  # 请使用字符串作为列名
-    copy_cube = cube.copy()
-    copy_cube.location = (x, y, z)  # 修正赋值语句
-    bpy.context.collection.objects.link(copy_cube)
+# 清除场景中的所有网格对象
+bpy.ops.object.select_all(action='DESELECT')
+bpy.ops.object.select_by_type(type='MESH')
+bpy.ops.object.delete()
 
-bpy.context.view_layer.update()
+# 创建材质1 - 红色
+material1 = bpy.data.materials.new(name="MyMaterial1")
+material1.use_nodes = False  # 关闭节点编辑器
+material1.diffuse_color = (1, 0, 0, 1)  # 这里使用 RGBA 表示红色
+
+# 创建立方体模板1
+bpy.ops.mesh.primitive_cube_add(size=df1.loc[0, 'size'], location=(0, 0, 0))
+template_cube1 = bpy.context.active_object
+template_cube1.data.materials.append(material1)
+
+# 根据 Excel 数据创建对象1
+for index, row in df1.iterrows():
+    x, y, z = row['center_x'], row['center_Y'], row['center_Z']
+    
+    # 创建新立方体对象1
+    new_cube1 = bpy.data.objects.new("Cube1", template_cube1.data.copy())
+    new_cube1.location = (x, y, z)
+    
+    # 将对象链接到场景中的集合
+    bpy.context.collection.objects.link(new_cube1)
+
+# 合并第一组立方体
+#bpy.context.view_layer.objects.active = bpy.context.collection.objects["Cube1"]
+#bpy.ops.object.join()
+
+# 创建材质2 - 蓝色
+material2 = bpy.data.materials.new(name="MyMaterial2")
+material2.use_nodes = False  # 关闭节点编辑器
+material2.diffuse_color = (0, 0, 1, 1)  # 这里使用 RGBA 表示蓝色
+
+# 创建立方体模板2
+bpy.ops.mesh.primitive_cube_add(size=df2.loc[0, 'size'], location=(0, 0, 0))
+template_cube2 = bpy.context.active_object
+template_cube2.data.materials.append(material2)
+
+# 根据 Excel 数据创建对象2
+for index, row in df2.iterrows():
+    x, y, z = row['center_x'], row['center_Y'], row['center_Z']
+    
+    # 创建新立方体对象2
+    new_cube2 = bpy.data.objects.new("Cube2", template_cube2.data.copy())
+    new_cube2.location = (x, y, z)
+    
+    # 将对象链接到场景中的集合
+    bpy.context.collection.objects.link(new_cube2)
+
+# 合并第二组立方体
+#bpy.context.view_layer.objects.active = bpy.context.collection.objects["Cube2"]
+#bpy.ops.object.join()
+
+# 创建材质3 - 绿色
+material3 = bpy.data.materials.new(name="MyMaterial3")
+material3.use_nodes = False  # 关闭节点编辑器
+material3.diffuse_color = (0, 1, 0, 0.5)  # 这里使用 RGBA 表示绿色
+
+# 创建立方体模板3
+bpy.ops.mesh.primitive_cube_add(size=df3.loc[0, 'size'], location=(0, 0, 0))
+template_cube3 = bpy.context.active_object
+template_cube3.data.materials.append(material3)
+
+# 根据 Excel 数据创建对象3
+for index, row in df3.iterrows():
+    x, y, z = row['center_x'], row['center_Y'], row['center_Z']
+    
+    # 创建新立方体对象3
+    new_cube3 = bpy.data.objects.new("Cube3", template_cube3.data.copy())
+    new_cube3.location = (x, y, z)
+    
+    # 将对象链接到场景中的集合
+    bpy.context.collection.objects.link(new_cube3)
+
+# 合并第三组立方体
+#bpy.context.view_layer.objects.active = bpy.context.collection.objects["Cube3"]
+#bpy.ops.object.join()
+
+# 合并三组立方体
+# 合并所有立方体
+
+# 删除模板立方体1
+bpy.data.objects.remove(template_cube1, do_unlink=True)
+
+# 删除模板立方体2
+bpy.data.objects.remove(template_cube2, do_unlink=True)
+
+# 删除模板立方体3
+bpy.data.objects.remove(template_cube3, do_unlink=True)
+
+# 合并所有立方体
+bpy.ops.object.select_all(action='SELECT')
+
+# 如果有选中的对象，则设置最后一个选中的对象为活动对象
+if bpy.context.selected_objects:
+    bpy.context.view_layer.objects.active = bpy.context.selected_objects[-1]
+    bpy.ops.object.join()
+else:
+    print("没有选中的对象，无法执行合并操作。")

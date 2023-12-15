@@ -1,14 +1,10 @@
-from pyOctree import *
+from pyOctree_Hu import Octree
 import numpy as np
 from stl import mesh
 import cupy as cp
 import time
-import cProfile
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from numba import cuda
 import numba
-import math
 from Cuda_operator import *
 import  openpyxl
 import os
@@ -64,7 +60,7 @@ class BoundingboxTool:
 
     def minBoundingBox(self):
         triangles,_ = self.read_stl()
-        bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
+        bounding_boxes = np.array(BoundingboxTool.boundingBoxes_gpu(triangles))
         size = np.min(np.max(bounding_boxes[:,:,1]-bounding_boxes[:,:,0],axis=1))
         return size
     
@@ -80,65 +76,18 @@ class BoundingboxTool:
 class OctreeOperator(Octree):
     def __init__(self, boundingbox) -> None:
         super().__init__(boundingbox)
-    #recursion
-    def findBoundingNode_recursion(self, target_depth, target_bounding_box, intersected_nodes=None, node=None):
-        if intersected_nodes is None:
-            intersected_nodes = []
 
-        if node is None:
-            node = self.root
-        depth = node.depth()
-        # Check if the current depth is less than the target depth
-        if depth  < target_depth:
-            # Check if the bounding boxes intersect
-            if self.boundingBoxIntersect(node, target_bounding_box):
-                # Extend the node to the next depth
-                self.extend(node, depth+1)
+    # def boundingBoxIntersect(self, node, targetBoundingBox):
+    # # Check if two bounding boxes intersect
+    #     miniNode, maxNode = np.array(node.center) - node.size / 2, np.array(node.center) + node.size / 2 
+    #     miniBbox, maxBbox= targetBoundingBox[0], targetBoundingBox[1]
 
-                # Recursively search through the node's children
-                for child_node in node.children:
-                    self.findBoundingNode_recursion(target_depth, target_bounding_box, intersected_nodes, child_node)
-        else:
-            # If the node has reached the target depth, add it to intersected_nodes
-            intersected_nodes.append(node)
-
-        return intersected_nodes
-
-
-    #iteration
-    def findBoundingNode_iteration(self, target_depth, target_bounding_box):
-        intersected_nodes = []
-        stack = [(self.root, 0)]  # 初始栈，包含根节点和深度 0
-
-        while stack:
-            node, depth = stack.pop()
-
-            # Check if the current depth is less than the target depth
-            if depth < target_depth:
-                # Check if the bounding boxes intersect
-                if self.boundingBoxIntersect(node, target_bounding_box):
-                    # Extend the node to the next depth
-                    self.extend(node, depth + 1)
-
-                    # Add the children to the stack for further exploration
-                    for child_node in node.children:
-                        stack.append((child_node, depth + 1))
-            else:
-                # If the node has reached the target depth, add it to intersected_nodes
-                intersected_nodes.append(node)
-
-        return intersected_nodes
-    def boundingBoxIntersect(self, node, targetBoundingBox):
-    # Check if two bounding boxes intersect
-        miniNode, maxNode = np.array(node.center) - node.size / 2, np.array(node.center) + node.size / 2 
-        miniBbox, maxBbox= targetBoundingBox[0], targetBoundingBox[1]
-
-        return not (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
-                    maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
-                    maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] or
-                    maxBbox[0] < miniNode[0] or miniBbox[0] > maxNode[0] or
-                    maxBbox[1] < miniNode[1] or miniBbox[1] > maxNode[1] or
-                    maxBbox[2] < miniNode[2] or miniBbox[2] > maxNode[2])
+    #     return not (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
+    #                 maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
+    #                 maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] or
+    #                 maxBbox[0] < miniNode[0] or miniBbox[0] > maxNode[0] or
+    #                 maxBbox[1] < miniNode[1] or miniBbox[1] > maxNode[1] or
+    #                 maxBbox[2] < miniNode[2] or miniBbox[2] > maxNode[2])
     @staticmethod
     @cuda.jit
     def boundingBoxIntersect_cuda(centers, sizes, targetBoundingBoxes, results,output_test = None):
@@ -164,10 +113,6 @@ class OctreeOperator(Octree):
                     maxNode[1] = centers[node_number, 1] + sizes[node_number, 1]/2
                     maxNode[2] = centers[node_number, 2] + sizes[node_number, 2]/2
 
-                    # if not (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
-                    #     maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
-                    #     maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] ):
-                        # cuda.atomic.add(results, node_number, 1)
                     results[thread,node_number]= not    (maxNode[0] < miniBbox[0] or miniNode[0] > maxBbox[0] or
                                                         maxNode[1] < miniBbox[1] or miniNode[1] > maxBbox[1] or
                                                         maxNode[2] < miniBbox[2] or miniNode[2] > maxBbox[2] )
@@ -182,10 +127,6 @@ class OctreeOperator(Octree):
         else:
             centers, sizes = OctreeOperator.maxtrixOperator(intersected_nodes)
             
-        # print(centers.shape)
-        # print(sizes.shape)
-        # 将数据传递到 GPU
-        # 将数据传递到 GP
         
         centers_gpu = cuda.to_device(np.array(centers))
         sizes_gpu = cuda.to_device(np.array(sizes))
@@ -234,10 +175,12 @@ class OctreeOperator(Octree):
             max_depth = intersected_tree_nodes[0].depth
             # self.all_leaf_nodes()
         # intersected_tree_nodes = np.where(results==True,intersected_tree_nodes,0)
-        intersected_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==False) ) 
+        other_nodes = np.delete(intersected_tree_nodes, np.where(results==True) )
+        intersected_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==False) )
+        
             # print(max_depth)
         # print("end")
-        return intersected_tree_nodes
+        return intersected_tree_nodes,other_nodes
 
     
     def __update_octree__(self, results, target_depth):
@@ -303,6 +246,15 @@ class OctreeOperator(Octree):
     # 构建完整的文件路径
         workbook.save(name)
         print("created the node_data")
+
+    @staticmethod
+    def transferNode2box(nodes):
+        boundingBoxes = []
+        for node in nodes:
+            min_bound = np.array(node.center)- node.size
+            max_bound = np.array(node.center)+ node.size
+            boundingBoxes.append([min_bound,max_bound])
+        return boundingBoxes
     
 class separatingAxis:
     def __init__(self) -> None:
@@ -497,99 +449,86 @@ class separatingAxis:
         end = time.time()
         print("time",end-begin)
         return inner_nodes
-        
-if __name__ == "__main__":
-    def transferNode2box(nodes):
-        boundingBoxes = []
-        for node in nodes:
-            min_bound = np.array(node.center)- node.size
-            max_bound = np.array(node.center)+ node.size
-            boundingBoxes.append([min_bound,max_bound])
-        return boundingBoxes
-    data_path = "B:\Master arbeit\DONUT2.stl"
-    # data_path = "B:\Master arbeit\Loopy Looper Donuts.stl"
-    voxl = BoundingboxTool(data_path)
-    triangles,normalVectors = voxl.read_stl()
-    normalVectors = np.array(normalVectors,dtype=np.float32)
-    bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
-    maxBoundingBox = voxl.maxBoundingBox()
-    minBoundingBox = voxl.minBoundingBox()
-    octreeTest = OctreeOperator(maxBoundingBox)
-    targetboundingbox =bounding_boxes[0].T
-    targetboundingboxes =np.transpose(bounding_boxes, (0, 2, 1))
 
-    # OctreeOperator.boundingBoxIntersect_cuda[blocks_per_grid, threads_per_block](centers_gpu, sizes_gpu, target_bounding_box_gpu, result_gpu)
+class Voxelization_exe():
+    def __init__(self,data_path) -> None:
+        self.data_path = data_path
 
-    # for boundingbox in targetboundingboxes:
-    #         center = (boundingbox[0] + boundingbox[1]) / 2
-    #         size = boundingbox[1] - boundingbox[0]
-    #         if np.any(size <= 0):
-    #             print(boundingbox)
-    #             raise ValueError("smaller than 0")
     
+    def run(self,targetDepth,excel=False,vis=False):
+        #initilize important parameters
+        voxl = BoundingboxTool(self.data_path)
+        triangles,normalVectors = voxl.read_stl()
+        normalVectors = np.array(normalVectors,dtype=np.float32)
+        bounding_boxes = np.array(voxl.boundingBoxes_gpu(triangles))
+        maxBoundingBox = voxl.maxBoundingBox()
+        minBoundingBox = voxl.minBoundingBox()
+        octreeTest = OctreeOperator(maxBoundingBox)
+        targetboundingbox =bounding_boxes[0].T
+        targetboundingboxes =np.transpose(bounding_boxes, (0, 2, 1))
+        target_depth= targetDepth
 
-#     profiler = cProfile.Profile()
-
-# # 开始性能分析
-#     profiler.enable()
-
-    # 运行你的函数
-    # intersected_nodes = octreeTest.findBoundingNode_recursion(target_depth=10, target_bounding_box=targetboundingbox)
-    target_depth= 11
-    start = time.time()
-    intersected_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=5,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
-    depth = intersected_nodes[0].depth
-    GPU_memory = 8
-    while depth<target_depth:
-        split_size = (1/2*GPU_memory*1024*1024*1024)//targetboundingboxes.shape[0]
-        intersected_nodes=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
-        a = []
-        for group in intersected_nodes:
-            a.extend(octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group))
-        intersected_nodes = a
+        #find nodes intersected with triangle boundingboxes
+        start = time.time()
+        intersected_nodes,_ = octreeTest.findBoundingNodesAll_cuda(target_depth=5,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
         depth = intersected_nodes[0].depth
-    node_boxes = transferNode2box(intersected_nodes)
-    # octreeTest.visualize(stl_path=data_path,boundingboxes=node_boxes,octree=False)
-    size1 = len(intersected_nodes)
-    intersected_nodes_splited = np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/40000))
-    a=[]
-    for group in intersected_nodes_splited:
-        a.extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
-    intersected_nodes = a
-    size2 = len(intersected_nodes)
-    end = time.time()
-    duration = end - start
-    octreeTest.all_leaf_nodes()
-    other_nodes = [node for node in octreeTest.leafnodes if node.depth<target_depth]
-    resolution = octreeTest.root.size*(0.5**(target_depth))
-    other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/40000))
-    a = []
-    inner_nodes=[]
-    for group in other_nodes_splited:
-        # a .extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
-        inner_nodes.extend(separatingAxis.ray_triangle_intersection(triangles,group))
-    print("Computation time", duration)
-    print("resolution",resolution)
-    print("how many leafnodes",len(octreeTest.leafnodes))
-    print("how many intersected nodes",len(intersected_nodes))
-    print("how many other leafnodes",len(other_nodes))
-    print("change of intersected nodes", size2-size1)
-    print("is there other nodes still intersected",len(a))
-    print("amount of inner nodes", len(inner_nodes))
-    node_boxes = transferNode2box(inner_nodes)
-    name="inner_nodes" + str(target_depth) +".xlsx"
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_dir,"node_data", name)
-    inner_nodes = [node for node in inner_nodes if node.depth != target_depth]
-    octreeTest.write_to_excel(inner_nodes,name=file_path)
-    
+        GPU_memory = 8
+        other_nodes = []
+        while depth<target_depth:
+            intersected_nodes_split=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /5000))
+            intersected_nodes = []
+            for group in intersected_nodes_split:
+                intersec,other= octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group)
+                intersected_nodes.extend(intersec)
+                other_nodes.extend(other)
+            depth = intersected_nodes[0].depth
+
+        #find nodes intersected with triangles    
+        size1 = len(intersected_nodes)
+        intersected_nodes_split= np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/40000))
+        intersected_nodes=[]
+        for group in intersected_nodes_split:
+            intersected_nodes.extend(separatingAxis.separatingAxis_calculation(triangles,normalVectors,group))
+        size2 = len(intersected_nodes)
+        end = time.time()
+        duration = end - start
+
+        #update the octree leafnodes
+        octreeTest.all_leaf_nodes()
+        resolution = octreeTest.root.size*(0.5**(target_depth))
+
+        # find the nodes inside the object
+        other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/40000))
+        inner_nodes=[]
+        for group in other_nodes_splited:
+            inner_nodes.extend(separatingAxis.ray_triangle_intersection(triangles,group))
+        inner_nodes = [node for node in inner_nodes if node.depth == target_depth]
+        print("Computation time", duration)
+        print("resolution",resolution)
+        print("how many leafnodes",len(octreeTest.leafnodes))
+        print("how many intersected nodes",len(intersected_nodes))
+        print("how many other leafnodes",len(other_nodes))
+        print("change of intersected nodes", size2-size1)
+        print("amount of inner nodes", len(inner_nodes))
+
+        #used for visulization
+        node_boxes = OctreeOperator.transferNode2box(inner_nodes)
 
 
-    # octreeTest.visualize(stl_path=None,boundingboxes=node_boxes,octree=False)
+        # generate excel file for data
+        if excel:
+            name1="inner_nodes" + str(target_depth) +".xlsx"
+            name2="node_data" + str(target_depth) +".xlsx"
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            file_path1 = os.path.join(current_dir,"node_data", name1)
+            file_path2 = os.path.join(current_dir,"node_data", name2)
+            if len(inner_nodes):
+                octreeTest.write_to_excel(inner_nodes,name=file_path1)
+            if len(intersected_nodes):
+                octreeTest.write_to_excel(intersected_nodes,name=file_path2)
+        # visilize but not for large data
+        if vis:
+            octreeTest.visualize(stl_path=self.data_path,boundingboxes=node_boxes,octree=False)
 
-
-    # 结束性能分析
-    # profiler.disable()
-
-    # # 生成性能报告
-    # profiler.print_stats(sort='cumulative')  # 按照累积时间排序
+if __name__ == "__main__":
+    pass
