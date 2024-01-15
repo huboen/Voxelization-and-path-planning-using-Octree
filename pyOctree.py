@@ -14,12 +14,12 @@ class Octreenode:
         half_size = child_size / 2
         child_centers = [
             [self.center[0] - half_size, self.center[1] - half_size, self.center[2] - half_size],
-            [self.center[0] - half_size, self.center[1] - half_size, self.center[2] + half_size],
-            [self.center[0] - half_size, self.center[1] + half_size, self.center[2] - half_size],
-            [self.center[0] - half_size, self.center[1] + half_size, self.center[2] + half_size],
             [self.center[0] + half_size, self.center[1] - half_size, self.center[2] - half_size],
-            [self.center[0] + half_size, self.center[1] - half_size, self.center[2] + half_size],
+            [self.center[0] - half_size, self.center[1] + half_size, self.center[2] - half_size],
             [self.center[0] + half_size, self.center[1] + half_size, self.center[2] - half_size],
+            [self.center[0] - half_size, self.center[1] - half_size, self.center[2] + half_size],
+            [self.center[0] + half_size, self.center[1] - half_size, self.center[2] + half_size],
+            [self.center[0] - half_size, self.center[1] + half_size, self.center[2] + half_size],
             [self.center[0] + half_size, self.center[1] + half_size, self.center[2] + half_size],
         ]
         self.children = [Octreenode(i, size=child_size,parent=self) for i in child_centers]
@@ -33,6 +33,10 @@ class Octreenode:
 
     def get_node_info(self):
         return (self.center, self.size, self.get_depth())  
+    
+    def __eq__(self, other) -> bool:
+        if isinstance(other, Octree):
+            return other.center == self.center
 
 
 class Octree:
@@ -201,9 +205,20 @@ class Octree:
         center = 0.5*(boundingbox[0]+boundingbox[1])
         return center    
     
-    def __eq__(self, other) -> bool:
-        if isinstance(other, Octree):
-            return other.center == self.center
+    def minimum_center_z(self,node = None, result = None):
+        if result == None and node == None:
+            node = self.root()
+            result = self.root.center[2]
+        if not node.children:
+            if result > node.center[2]:
+                return node.center[2]
+        for node in node.children[0:4]:
+            if result >self.minimum_center_z(node,result):
+                result = self.minimum_center_z(node,result)
+        return result
+
+    
+
         
         
 if __name__ == "__main__":
