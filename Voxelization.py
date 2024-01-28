@@ -161,13 +161,13 @@ class OctreeOperator(Octree):
             
             max_depth = intersected_tree_nodes[0].depth
             # self.all_leaf_nodes()
-        # intersected_tree_nodes = np.where(results==True,intersected_tree_nodes,0)
-        other_nodes = np.delete(intersected_tree_nodes, np.where(results==True) )
+
+        other_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==True) )
         intersected_tree_nodes = np.delete(intersected_tree_nodes, np.where(results==False) )
         
             # print(max_depth)
         # print("end")
-        return intersected_tree_nodes,other_nodes
+        return intersected_tree_nodes,other_tree_nodes
   
     def __update_octree__(self, results, target_depth):
         for label, node in enumerate(results,self.leafnodes):
@@ -249,12 +249,32 @@ class OctreeOperator(Octree):
     def node_division(octree):
         slice = {}
         for node in octree.leafnodes:
-            if node.label != 0 :
+            if node.label != 0:
                 if node.center[2] not in slice:
                     slice[node.center[2]] = [node]
                 else:
                     slice[node.center[2]].append(node)
         return slice
+    # @staticmethod
+    # def is_approx_equal(a, b, tolerance=1e-6):
+    #     return abs(a - b) < tolerance
+    
+    # @staticmethod
+    # def node_division(octree):
+    #     slice = {}
+    #     count = 0
+    #     for node in octree.leafnodes:
+    #         if node.label != 0:
+    #             if node.label == 0.5:
+    #                 count += 1
+    #             if not any(OctreeOperator.is_approx_equal(node.center[2], key) for key in slice):
+    #                 slice[node.center[2]] = [node]
+    #             else:
+    #                 # 找到最接近的 key，并将节点添加到对应的组
+    #                 closest_key = min(slice.keys(), key=lambda key: abs(node.center[2] - key))
+    #                 slice[closest_key].append(node)
+
+    #     print(count)
     
 
 class separatingAxis:
@@ -471,32 +491,29 @@ class Voxelization_exe():
         targetboundingbox =bounding_boxes[0].T
         targetboundingboxes =np.transpose(bounding_boxes, (0, 2, 1))
         target_depth= targetDepth
-
-        #find nodes intersected with triangle boundingboxes
         start = time.time()
-        # intersected_nodes,other_nodes = octreeTest.findBoundingNodesAll_cuda(target_depth=5,target_bounding_boxes=targetboundingboxes,intersected_nodes=None)
         octreeTest.all_leaf_nodes()
         depth = octreeTest.leafnodes[0].depth
         intersected_nodes = octreeTest.leafnodes
         other_nodes = []
+        #find intersection between nodes and triangles
         while depth<target_depth:
-            intersected_nodes_split=np.array_split(intersected_nodes, np.ceil(len(intersected_nodes) /(60000e4/triangles.shape[0])))
-            intersected_nodes = []
+            intersected_nodes_split= np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/(480000e4/triangles.shape[0])))
+            intersected_nodes=[]
             for group in intersected_nodes_split:
-                intersec,other= octreeTest.findBoundingNodesAll_cuda(target_depth=depth+1,target_bounding_boxes=targetboundingboxes,intersected_nodes=group)
-                intersected_nodes.extend(intersec)
+                intersec,other = separatingAxis.separatingAxis_calculation(triangles,normalVectors,group)
+                for node in intersec:
+                    OctreeOperator.extend(node,depth+1)
+                    intersected_nodes.extend(node.children)
                 other_nodes.extend(other)
             depth = intersected_nodes[0].depth
-
-        #find nodes intersected with triangles    
-        size1 = len(intersected_nodes)
+        
         intersected_nodes_split= np.array_split(intersected_nodes,np.ceil(len(intersected_nodes)/(480000e4/triangles.shape[0])))
         intersected_nodes=[]
         for group in intersected_nodes_split:
             intersec,other = separatingAxis.separatingAxis_calculation(triangles,normalVectors,group)
             intersected_nodes.extend(intersec)
             other_nodes.extend(other)
-        size2 = len(intersected_nodes)
         end = time.time()
         duration = end - start
 
@@ -505,17 +522,17 @@ class Voxelization_exe():
         resolution = octreeTest.root.size*(0.5**(target_depth))
 
         # find the nodes inside the object
-        other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/40000))
+        
+        other_nodes_splited = np.array_split(other_nodes,np.ceil(len(other_nodes)/(480000e4/triangles.shape[0])))
         inner_nodes=[]
         for group in other_nodes_splited:
             inner_nodes.extend(separatingAxis.ray_triangle_intersection(triangles,group))
-        inner_nodes = [node for node in inner_nodes if node.depth == target_depth]
+        # inner_nodes = [node for node in inner_nodes if node.depth == target_depth]
         print("Computation time", duration)
         print("resolution",resolution)
         print("how many leafnodes",len(octreeTest.leafnodes))
         print("how many intersected nodes",len(intersected_nodes))
         print("how many other leafnodes",len(other_nodes))
-        print("change of intersected nodes", size2-size1)
         print("amount of inner nodes", len(inner_nodes))
         
         #used for visulization
@@ -535,7 +552,9 @@ class Voxelization_exe():
                 octreeTest.write_to_excel(intersected_nodes,name=file_path2)
         # visilize but not for large data
         if vis:
-            octreeTest.visualize(stl_path=self.data_path,boundingboxes=node_boxes,octree=False)
+            print(intersected_nodes[0].depth)
+            octreeTest.visualize(stl_path=None,boundingboxes=None,octree=True)
+            
         return intersected_nodes,inner_nodes,octreeTest
 
 if __name__ == "__main__":

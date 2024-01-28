@@ -1,8 +1,7 @@
 import bpy
 import pandas as pd
-import os
 
-file_path3 = "B:\\Master arbeit\\node_data\\inner_nodes8.xlsx"
+file_path3 = "B:\\Master arbeit\\node_data\\inner_nodes9.xlsx"
 sheet_name = "Sheet_1"
 
 df3 = pd.read_excel(file_path3, sheet_name=sheet_name)
@@ -18,13 +17,13 @@ material1.use_nodes = False  # 关闭节点编辑器
 material1.diffuse_color = (1, 0, 0, 1)  # 这里使用 RGBA 表示红色
 
 # 创建立方体模板1
-bpy.ops.mesh.primitive_cube_add(size=0.078125/2, location=(0, 0, 0))
+bpy.ops.mesh.primitive_cube_add(size=df3["size"][0], location=(0, 0, 0))
 template_cube1 = bpy.context.active_object
 template_cube1.data.materials.append(material1)
 
 # 根据 Excel 数据创建对象1
 for index, row in df3.iterrows():
-    if row["depth"] == 7:
+    if row["depth"] == 4:
         x, y, z = row['center_x'], row['center_Y'], row['center_Z']
         
         # 创建新立方体对象1
@@ -43,7 +42,7 @@ material2.use_nodes = False  # 关闭节点编辑器
 material2.diffuse_color = (0, 0, 1, 1)  # 这里使用 RGBA 表示蓝色
 
 # 创建立方体模板2
-bpy.ops.mesh.primitive_cube_add(size=df3.loc[0, 'size'], location=(0, 0, 0))
+bpy.ops.mesh.primitive_cube_add(size=df3["size"][70], location=(0, 0, 0))
 template_cube2 = bpy.context.active_object
 template_cube2.data.materials.append(material2)
 
@@ -68,7 +67,7 @@ material3.use_nodes = False  # 关闭节点编辑器
 material3.diffuse_color = (0, 1, 0, 0.25)  # 这里使用 RGBA 表示绿色
 
 # 创建立方体模板3
-bpy.ops.mesh.primitive_cube_add(size=0.078125, location=(0, 0, 0))
+bpy.ops.mesh.primitive_cube_add(size=df3["size"][3231], location=(0, 0, 0))
 template_cube3 = bpy.context.active_object
 template_cube3.data.materials.append(material3)
 

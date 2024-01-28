@@ -156,7 +156,7 @@ class Octree:
         o3d.visualization.draw_geometries(line_set_list, window_name="Octree Visualization", width=800, height=600)
 
     def __create_lines__(self, node, line_set_list):
-        if not node.children:
+        if node.children:
             # Create lines representing the bounding box edges
             edges = [
                 [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7],
