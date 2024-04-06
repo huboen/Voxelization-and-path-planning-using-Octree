@@ -3,7 +3,7 @@ def g_code_create(folder_path,feed_rate=1):
     layer_list = Printing_3d.load_model(folder_path)
     print("loaded")
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_dir,"layer_data", "Path_gcode.nc")
+    file_path = os.path.join(current_dir,"Path", "Path_gcode.nc")
     # file_path = 'B:\Master arbeit\layer_data\gcode_all.nc'
     with open(file_path, 'w') as f:
         f.write('')
@@ -29,6 +29,6 @@ def g_code_create(folder_path,feed_rate=1):
 
 if __name__ == '__main__': 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    folder_path = os.path.join(current_dir,"Path")          
+    folder_path = os.path.join(current_dir,"layer_data")          
     # folder_path = 'B:\Master arbeit\layer_data'
     g_code_create(folder_path=folder_path,feed_rate=1)
