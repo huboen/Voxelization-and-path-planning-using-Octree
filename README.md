@@ -1,6 +1,7 @@
 Requires: `Python 3.81`
 This package requires CuPy. Please ensure CUDA Toolkit 12.3 is installed.
 The Voxelization is run on GPU 3070 with 8GB, please be sure to use same GPU or GPU with more space, else, storage problem may occur.
+![示例图片](images/Bild1)
 
 ```bash
 pip install -r requirements.txt
